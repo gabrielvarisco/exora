@@ -1,22 +1,27 @@
-import type { Metadata } from 'next';
-import './globals.css';
-import { Header } from '@/components/Header';
-import { Footer } from '@/components/Footer';
+import type { Metadata } from "next";
+import "./globals.css";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import WalletProvider from "@/components/WalletProvider";
 
 export const metadata: Metadata = {
-  title: 'Exora — DEX Execution Optimizer',
-  description: 'Compare DEX swap routes and make better execution decisions with real public data.',
+  title: "Exora",
+  description: "DEX Execution Optimizer",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en">
       <body>
-        <div className="shell">
+        <WalletProvider>
           <Header />
           {children}
           <Footer />
-        </div>
+        </WalletProvider>
       </body>
     </html>
   );

@@ -1,9 +1,8 @@
-export function Footer() {
+export default function Footer() {
   return (
-    <footer className="footer">
-      <div className="container footer-inner">
-        <div>Exora · DEX Execution Optimizer</div>
-        <div className="text-muted">Real pool data. Estimated execution quality. No fake routing.</div>
+    <footer className="border-t border-white/10 bg-slate-950/70">
+      <div className="mx-auto max-w-6xl px-4 py-6 text-center text-sm text-slate-400">
+        Exora — DEX Execution Optimizer
       </div>
     </footer>
   );
