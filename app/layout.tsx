@@ -6,18 +6,15 @@ import WalletProvider from "@/components/WalletProvider";
 
 export const metadata: Metadata = {
   title: "Exora",
-  description: "DEX Execution Optimizer",
+  description: "DEX Execution Optimizer"
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body>
         <WalletProvider>
+          <div className="app-bg" />
           <Header />
           {children}
           <Footer />

@@ -1,293 +1,180 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import SwapCard from "@/components/SwapCard";
+import { useEffect, useMemo, useState } from "react";
+import { getDefaultPair, getTokensForChain } from "@/lib/token-list";
+import { AnalyzeResponse, ChainKey, TokenOption } from "@/lib/types";
+import TokenSelectorModal from "@/components/TokenSelectorModal";
+import RouteSummary from "@/components/RouteSummary";
+import RouteTable from "@/components/RouteTable";
+import DecisionPanel from "@/components/DecisionPanel";
+import { saveAlert, saveHistoryItem } from "@/lib/storage";
+import { useAccount, useBalance, useChainId } from "wagmi";
+import { chainLabel, shortAddress } from "@/lib/format";
 
-type RouteResult = {
-  dex: string;
-  output: number;
-  gas: number;
-  slippage: number;
-  liquidity: number;
-  volume: number;
-};
-
-type AnalyzeResponse = {
-  routes?: RouteResult[];
-  error?: string;
-};
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatPercent(value: number) {
-  return `${(value * 100).toFixed(2)}%`;
-}
-
-function getExecutionScore(route: RouteResult) {
-  let score = 50;
-
-  if (route.liquidity >= 1_000_000) score += 20;
-  else if (route.liquidity >= 250_000) score += 12;
-  else if (route.liquidity >= 50_000) score += 6;
-
-  if (route.volume >= 1_000_000) score += 12;
-  else if (route.volume >= 250_000) score += 8;
-  else if (route.volume >= 50_000) score += 4;
-
-  if (route.slippage <= 0.0025) score += 10;
-  else if (route.slippage <= 0.005) score += 6;
-  else if (route.slippage <= 0.01) score += 2;
-  else score -= 6;
-
-  if (route.gas <= 8) score += 8;
-  else if (route.gas <= 15) score += 4;
-  else score -= 4;
-
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
-
-function getScoreLabel(score: number) {
-  if (score >= 85) return "Excellent";
-  if (score >= 70) return "Strong";
-  if (score >= 55) return "Decent";
-  if (score >= 40) return "Weak";
-  return "High risk";
-}
+const CHAINS: { label: string; value: ChainKey }[] = [
+  { label: "Ethereum", value: "ethereum" },
+  { label: "Base", value: "base" },
+  { label: "Arbitrum", value: "arbitrum" },
+  { label: "Polygon", value: "polygon" },
+  { label: "BSC", value: "bsc" }
+];
 
 export default function AnalyzerClient() {
-  const [chain, setChain] = useState("ethereum");
-  const [tokenIn, setTokenIn] = useState("ETH");
-  const [tokenOut, setTokenOut] = useState("USDC");
+  const [chain, setChain] = useState<ChainKey>("ethereum");
+  const [tokenIn, setTokenIn] = useState<TokenOption>(() => getTokensForChain("ethereum")[0]);
+  const [tokenOut, setTokenOut] = useState<TokenOption>(() => getTokensForChain("ethereum")[1]);
   const [amount, setAmount] = useState("1");
-  const [routes, setRoutes] = useState<RouteResult[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [selecting, setSelecting] = useState<"in" | "out" | null>(null);
+  const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleAnalyze() {
+  const { address, isConnected } = useAccount();
+  const walletChainId = useChainId();
+  const { data: balance } = useBalance({ address });
+
+  useEffect(() => {
+    const defaults = getDefaultPair(chain);
+    const list = getTokensForChain(chain);
+    const nextIn = list.find((item) => item.symbol === defaults.tokenIn) ?? list[0];
+    const nextOut = list.find((item) => item.symbol === defaults.tokenOut) ?? list[1] ?? list[0];
+    setTokenIn(nextIn);
+    setTokenOut(nextOut);
+  }, [chain]);
+
+  const walletContext = useMemo(() => {
+    if (!isConnected || !address) return null;
+    return {
+      address: shortAddress(address),
+      chain: chainLabel(walletChainId),
+      balance: balance ? `${Number(balance.formatted).toFixed(4)} ${balance.symbol}` : "Balance unavailable"
+    };
+  }, [address, balance, isConnected, walletChainId]);
+
+  async function analyze() {
+    setLoading(true);
     setError("");
-    setRoutes([]);
-
-    if (!tokenIn || !tokenOut || !amount) {
-      setError("Fill chain, token pair and amount before analyzing.");
-      return;
-    }
-
+    setResult(null);
     try {
-      setIsLoading(true);
-
       const response = await fetch("/api/analyze", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          chain,
-          tokenIn,
-          tokenOut,
-          amount,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chain, tokenIn: tokenIn.symbol, tokenOut: tokenOut.symbol, amount })
+      });
+      const data = (await response.json()) as AnalyzeResponse & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Analyzer failed");
+      setResult(data);
+
+      saveHistoryItem({
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        chain,
+        tokenIn: tokenIn.symbol,
+        tokenOut: tokenOut.symbol,
+        amount,
+        bestDex: data.bestRoute?.dex,
+        executionScore: data.bestRoute?.executionScore,
+        estimatedOutput: data.bestRoute?.estimatedOutput,
+        summary: data.summary
       });
 
-      const data: AnalyzeResponse = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to analyze routes.");
+      if (data.bestRoute && data.bestRoute.slippage > 0.02) {
+        saveAlert({
+          id: crypto.randomUUID(),
+          pair: `${tokenIn.symbol}/${tokenOut.symbol}`,
+          chain,
+          message: `High slippage risk detected on ${data.bestRoute.dex}. Consider reducing size or waiting for better depth.`,
+          severity: "warning",
+          createdAt: new Date().toISOString()
+        });
       }
-
-      if (!data.routes || data.routes.length === 0) {
-        setError("No real route candidates found for this pair in the current public data coverage.");
-        return;
-      }
-
-      const sorted = [...data.routes].sort((a, b) => b.output - a.output);
-      setRoutes(sorted);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unexpected analyzer error.";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Unknown analyzer error");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   }
 
-  function handleFlip() {
-    setTokenIn(tokenOut);
-    setTokenOut(tokenIn);
-  }
-
-  const bestRoute = useMemo(() => {
-    if (!routes.length) return null;
-    return routes[0];
-  }, [routes]);
-
-  const bestScore = useMemo(() => {
-    if (!bestRoute) return null;
-    return getExecutionScore(bestRoute);
-  }, [bestRoute]);
-
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#12213f_0%,#050816_45%,#03060f_100%)] text-white">
-      <section className="mx-auto max-w-6xl px-4 pb-20 pt-10">
-        <div className="mb-10 text-center">
-          <div className="inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-1 text-xs uppercase tracking-[0.24em] text-cyan-300">
-            Execution intelligence
-          </div>
+    <div className="shell analyzer-shell">
+      <div className="page-copy analyzer-copy">
+        <span className="eyebrow">Execution intelligence</span>
+        <h1>Analyze the best swap route before you execute.</h1>
+        <p>
+          One clean terminal for route quality, slippage risk, gas burden and decision support. Built to feel familiar to
+          active DEX users without turning into a noisy dashboard.
+        </p>
+      </div>
 
-          <h1 className="mx-auto mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-white md:text-6xl">
-            Analyze the best swap route before you execute
-          </h1>
-
-          <p className="mx-auto mt-4 max-w-2xl text-base text-slate-300 md:text-lg">
-            Exora keeps the interface simple like a swap terminal, but shows route quality,
-            slippage risk, gas tradeoffs and execution score before decision time.
-          </p>
-        </div>
-
-        <SwapCard
-          chain={chain}
-          tokenIn={tokenIn}
-          tokenOut={tokenOut}
-          amount={amount}
-          onChainChange={setChain}
-          onTokenInChange={setTokenIn}
-          onTokenOutChange={setTokenOut}
-          onAmountChange={setAmount}
-          onFlip={handleFlip}
-          onAnalyze={handleAnalyze}
-          isLoading={isLoading}
-        />
-
-        {error ? (
-          <div className="mx-auto mt-8 max-w-4xl rounded-3xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-200">
-            {error}
-          </div>
-        ) : null}
-
-        {bestRoute ? (
-          <div className="mx-auto mt-10 max-w-5xl space-y-6">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-                <p className="text-sm text-slate-400">Best route</p>
-                <h3 className="mt-2 text-2xl font-semibold text-white">{bestRoute.dex}</h3>
-                <p className="mt-2 text-sm text-slate-300">
-                  Highest estimated output among current route candidates.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-                <p className="text-sm text-slate-400">Estimated output</p>
-                <h3 className="mt-2 text-2xl font-semibold text-white">
-                  {formatMoney(bestRoute.output)} {tokenOut}
-                </h3>
-                <p className="mt-2 text-sm text-slate-300">
-                  Public-data estimate based on pool liquidity and route assumptions.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-                <p className="text-sm text-slate-400">Execution score</p>
-                <h3 className="mt-2 text-2xl font-semibold text-white">
-                  {bestScore}/100
-                </h3>
-                <p className="mt-2 text-sm text-slate-300">
-                  {bestScore !== null ? getScoreLabel(bestScore) : "-"}
-                </p>
-              </div>
+      <div className="analyzer-layout">
+        <section className="trade-column glass-card">
+          <div className="trade-head">
+            <div>
+              <span className="eyebrow">Exora terminal</span>
+              <h2>Compare execution before swap</h2>
             </div>
+            <select className="chain-select" value={chain} onChange={(e) => setChain(e.target.value as ChainKey)}>
+              {CHAINS.map((item) => (
+                <option value={item.value} key={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </div>
 
-            <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-white">Route comparison</h2>
-                  <span className="text-sm text-slate-400">{routes.length} candidates</span>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-white/10 text-slate-400">
-                      <tr>
-                        <th className="px-3 py-3 font-medium">DEX</th>
-                        <th className="px-3 py-3 font-medium">Output</th>
-                        <th className="px-3 py-3 font-medium">Slippage</th>
-                        <th className="px-3 py-3 font-medium">Gas</th>
-                        <th className="px-3 py-3 font-medium">Liquidity</th>
-                        <th className="px-3 py-3 font-medium">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {routes.map((route) => {
-                        const score = getExecutionScore(route);
-
-                        return (
-                          <tr key={`${route.dex}-${route.output}`} className="border-b border-white/5">
-                            <td className="px-3 py-4 text-white">{route.dex}</td>
-                            <td className="px-3 py-4 text-white">
-                              {formatMoney(route.output)} {tokenOut}
-                            </td>
-                            <td className="px-3 py-4 text-slate-300">
-                              {formatPercent(route.slippage)}
-                            </td>
-                            <td className="px-3 py-4 text-slate-300">
-                              ${route.gas.toFixed(2)}
-                            </td>
-                            <td className="px-3 py-4 text-slate-300">
-                              ${formatMoney(route.liquidity)}
-                            </td>
-                            <td className="px-3 py-4">
-                              <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-xs font-medium text-cyan-300">
-                                {score}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-                <h2 className="text-xl font-semibold text-white">Decision summary</h2>
-
-                <div className="mt-4 space-y-4 text-sm text-slate-300">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="font-medium text-white">Recommended action</p>
-                    <p className="mt-2">
-                      Best current candidate is <span className="font-semibold text-cyan-300">{bestRoute.dex}</span>,
-                      with the strongest estimated output for this pair.
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="font-medium text-white">Slippage view</p>
-                    <p className="mt-2">
-                      Estimated slippage is <span className="font-semibold text-white">{formatPercent(bestRoute.slippage)}</span>.
-                      {bestRoute.slippage > 0.01
-                        ? " This is elevated and may indicate thinner execution quality."
-                        : " This is within a relatively acceptable range for an estimated public-data route model."}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="font-medium text-white">Liquidity context</p>
-                    <p className="mt-2">
-                      Route depth shows approximately <span className="font-semibold text-white">${formatMoney(bestRoute.liquidity)}</span> in tracked liquidity,
-                      which helps support execution confidence.
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-amber-100">
-                    This is execution intelligence based on real public pool data, not a final on-chain executable quote.
-                  </div>
-                </div>
-              </div>
+          <div className="token-panel">
+            <span>Sell</span>
+            <div className="token-panel-main">
+              <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.0" />
+              <button type="button" className="token-button" onClick={() => setSelecting("in")}>{tokenIn.symbol}</button>
             </div>
           </div>
-        ) : null}
-      </section>
+
+          <button type="button" className="switch-button" onClick={() => {
+            setTokenIn(tokenOut);
+            setTokenOut(tokenIn);
+          }}>↓</button>
+
+          <div className="token-panel">
+            <span>Buy</span>
+            <div className="token-panel-main">
+              <div className="output-placeholder">{result?.bestRoute ? result.bestRoute.estimatedOutput.toFixed(4) : "?"}</div>
+              <button type="button" className="token-button" onClick={() => setSelecting("out")}>{tokenOut.symbol}</button>
+            </div>
+          </div>
+
+          <button type="button" className="primary-btn full-width" onClick={analyze} disabled={loading}>
+            {loading ? "Analyzing routes..." : "Analyze Best Route"}
+          </button>
+
+          {walletContext ? (
+            <div className="wallet-inline">
+              <span>{walletContext.chain}</span>
+              <span>{walletContext.balance}</span>
+              <span>{walletContext.address}</span>
+            </div>
+          ) : (
+            <div className="wallet-inline wallet-muted">
+              Connect a wallet to surface network context and balances.
+            </div>
+          )}
+
+          {error ? <div className="error-box">{error}</div> : null}
+        </section>
+
+        <section className="insight-column">
+          <RouteSummary bestRoute={result?.bestRoute} tokenOut={tokenOut.symbol} />
+          {result ? <DecisionPanel summary={result.summary} note={result.sourceNote} /> : null}
+        </section>
+      </div>
+
+      {result ? <RouteTable routes={result.routes} tokenOut={tokenOut.symbol} /> : null}
+
+      <TokenSelectorModal
+        chain={chain}
+        title={selecting === "in" ? "Select token in" : "Select token out"}
+        open={Boolean(selecting)}
+        onClose={() => setSelecting(null)}
+        onSelect={(token) => (selecting === "in" ? setTokenIn(token) : setTokenOut(token))}
+      />
     </div>
   );
 }

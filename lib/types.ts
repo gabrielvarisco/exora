@@ -1,85 +1,57 @@
-export type SupportedChain =
-  | 'ethereum'
-  | 'arbitrum'
-  | 'base'
-  | 'bsc'
-  | 'polygon'
-  | 'optimism'
-  | 'solana';
+export type ChainKey = "ethereum" | "base" | "arbitrum" | "polygon" | "bsc";
 
-export type RouteSource = 'dexscreener' | 'geckoterminal';
-
-export interface TokenReference {
-  address?: string;
+export interface TokenOption {
   symbol: string;
-  name?: string;
+  name: string;
+  chain: ChainKey;
+  address?: string;
+  logo?: string;
 }
 
 export interface RouteCandidate {
   id: string;
-  source: RouteSource;
-  chain: SupportedChain;
-  dexId: string;
+  dex: string;
+  chain: ChainKey;
   pairAddress: string;
-  pairLabel: string;
-  url?: string;
-  baseToken: TokenReference;
-  quoteToken: TokenReference;
+  baseSymbol: string;
+  quoteSymbol: string;
   liquidityUsd: number;
   volume24hUsd: number;
-  priceRatio: number | null;
-  direction: 'in-to-out' | 'out-to-in' | 'unknown';
-  estimatedOutput: number | null;
-  estimatedOutputSymbol: string;
-  priceImpactPct: number;
-  slippagePct: number;
+  priceImpact: number;
+  slippage: number;
   gasUsd: number;
+  estimatedOutput: number;
   executionScore: number;
-  scoreLabel: 'Excellent' | 'Good' | 'Watch' | 'Risky';
-  confidence: 'High' | 'Medium' | 'Low';
-  warnings: string[];
-  notes: string[];
-  freshness: 'Live' | 'Cached';
+  confidence: "high" | "medium" | "low";
+  warning?: string;
 }
 
-export interface AnalysisSummary {
-  chain: SupportedChain;
+export interface AnalyzeResponse {
+  pairLabel: string;
+  routes: RouteCandidate[];
+  bestRoute?: RouteCandidate;
+  summary: string;
+  sourceNote: string;
+}
+
+export interface SavedAnalysis {
+  id: string;
+  createdAt: string;
+  chain: ChainKey;
   tokenIn: string;
   tokenOut: string;
-  amountIn: number;
-  bestRoute: RouteCandidate | null;
-  alternativeRoutes: RouteCandidate[];
-  routeCount: number;
-  textualSummary: string;
-  decisionSummary: string[];
-  coverageNotes: string[];
-  analyzedAt: string;
-  emptyReason?: string;
+  amount: string;
+  bestDex?: string;
+  executionScore?: number;
+  estimatedOutput?: number;
+  summary: string;
 }
 
-export interface HistoryItem {
+export interface TrackedAlert {
   id: string;
-  pairKey: string;
-  createdAt: string;
-  summary: AnalysisSummary;
-}
-
-export interface TrackedPair {
-  id: string;
-  chain: SupportedChain;
-  tokenIn: string;
-  tokenOut: string;
-  amountIn: number;
-  createdAt: string;
-  lastBestDex?: string;
-  lastSlippagePct?: number;
-}
-
-export interface AlertItem {
-  id: string;
-  severity: 'info' | 'warning' | 'critical';
-  title: string;
-  description: string;
-  pairKey: string;
+  pair: string;
+  chain: ChainKey;
+  message: string;
+  severity: "info" | "warning" | "success";
   createdAt: string;
 }
