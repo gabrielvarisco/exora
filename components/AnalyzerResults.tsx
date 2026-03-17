@@ -1,57 +1,44 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { DecisionSummaryPanel } from '@/components/DecisionSummaryPanel';
-import { ExecutionScoreCard } from '@/components/ExecutionScoreCard';
-import { RouteComparisonTable } from '@/components/RouteComparisonTable';
-import { RouteSummaryCard } from '@/components/RouteSummaryCard';
-import { trackAnalysis } from '@/lib/history-store';
-import type { AnalysisSummary } from '@/lib/types';
+type AnalyzerResultsProps = {
+  result?: unknown;
+};
 
-interface AnalyzerResultsProps {
-  result: AnalysisSummary | null;
-  error: string | null;
-  isLoading: boolean;
-}
-
-export function AnalyzerResults({ result, error, isLoading }: AnalyzerResultsProps) {
-  const [trackMessage, setTrackMessage] = useState<string | null>(null);
-
-  if (isLoading) {
-    return <div className="panel content-panel loading-state">Fetching real pool data and scoring execution quality...</div>;
-  }
-
-  if (error) {
-    return <div className="panel content-panel error-state"><strong>Analyzer error</strong><div className="text-muted" style={{ marginTop: 8 }}>{error}</div></div>;
-  }
-
+export default function AnalyzerResults({ result }: AnalyzerResultsProps) {
   if (!result) {
-    return <div className="panel content-panel empty-state"><strong>No analysis yet</strong><div className="text-muted" style={{ marginTop: 8 }}>Fill the form to compare live routes. A good first test is Ethereum, WETH, USDC, amount 1.</div></div>;
-  }
+    return (
+      <div className="rounded-[28px] border border-white/10 bg-[#10182b]/90 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur">
+        <div className="mb-4">
+          <p className="text-sm text-slate-400">Analyzer results</p>
+          <h2 className="mt-1 text-2xl font-semibold text-white">
+            No analysis result yet
+          </h2>
+        </div>
 
-  if (!result.bestRoute) {
-    return <div className="panel content-panel empty-state"><strong>No usable route found</strong><div className="text-muted" style={{ marginTop: 8 }}>{result.emptyReason}</div></div>;
+        <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-10 text-center">
+          <p className="text-base text-slate-300">
+            Run a route analysis to populate this panel.
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            Future results can include output estimate, route source, gas and execution quality.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="stack">
-      <div className="summary-grid">
-        <RouteSummaryCard route={result.bestRoute} />
-        <ExecutionScoreCard route={result.bestRoute} />
+    <div className="rounded-[28px] border border-white/10 bg-[#10182b]/90 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur">
+      <div className="mb-4">
+        <p className="text-sm text-slate-400">Analyzer results</p>
+        <h2 className="mt-1 text-2xl font-semibold text-white">
+          Analysis completed
+        </h2>
       </div>
-      <div className="panel content-panel inline-actions">
-        <div>
-          <div className="card-title">Track this pair</div>
-          <div className="text-muted small">Save it locally for route monitoring and alerts.</div>
-        </div>
-        <button className="btn btn-secondary" onClick={() => {
-          trackAnalysis(result);
-          setTrackMessage('Pair tracked locally.');
-        }}>Save to tracked pairs</button>
-        {trackMessage ? <span className="text-muted small">{trackMessage}</span> : null}
-      </div>
-      <DecisionSummaryPanel summary={result} />
-      <RouteComparisonTable routes={[result.bestRoute, ...result.alternativeRoutes]} />
+
+      <pre className="overflow-auto rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-xs text-slate-300">
+        {JSON.stringify(result, null, 2)}
+      </pre>
     </div>
   );
 }
