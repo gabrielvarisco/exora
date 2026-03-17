@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
     const sellAmount = toBaseUnits(body.amount, sellToken.decimals).toString();
 
-    if (BigInt(sellAmount) <= 0n) {
+    if (BigInt(sellAmount) <= BigInt(0)) {
       return NextResponse.json(
         { error: "Amount must be greater than zero" },
         { status: 400 }
