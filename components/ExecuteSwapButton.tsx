@@ -1,10 +1,22 @@
-import type { RouteCandidate } from '@/lib/types';
+"use client";
 
-export function ExecuteSwapButton({ route }: { route: RouteCandidate }) {
-  const href = route.url ?? '#';
+type ExecuteSwapButtonProps = {
+  route?: {
+    source?: string;
+  } | null;
+};
+
+export function ExecuteSwapButton({ route }: ExecuteSwapButtonProps) {
+  const source = route?.source ?? "External source";
+
   return (
-    <a className="btn btn-primary" href={href} target="_blank" rel="noreferrer">
-      Execute via source
-    </a>
+    <button
+      type="button"
+      disabled
+      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-400 opacity-70"
+      title="Direct execution is not enabled in this legacy component."
+    >
+      Execute via {source}
+    </button>
   );
 }
