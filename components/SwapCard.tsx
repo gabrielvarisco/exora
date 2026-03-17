@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useAccount,
   useBalance,
@@ -8,7 +8,8 @@ import {
   useSwitchChain,
 } from "wagmi";
 import { formatUnits as viemFormatUnits } from "viem";
-import ChainSelector from "@/components/ChainSelector";
+import AssetPicker from "@/components/AssetPicker";
+import NetworkPicker from "@/components/NetworkPicker";
 import {
   getChainById,
   getChainByKey,
@@ -19,7 +20,6 @@ import {
   getTokenBySymbol,
   getTokensForChain,
   isNativeTokenAddress,
-  type TokenOption,
 } from "@/lib/tokens";
 
 type PriceResponse = {
@@ -56,14 +56,6 @@ type PriceResponse = {
   error?: string;
 };
 
-type TokenPickerProps = {
-  value?: TokenOption;
-  tokens: TokenOption[];
-  chainKey: SupportedChainKey;
-  placeholder?: string;
-  onChange: (symbol: string) => void;
-};
-
 function formatTokenAmount(value?: string, decimals = 18) {
   if (!value) return "0";
 
@@ -89,173 +81,6 @@ function sanitizeAmountInput(value: string) {
 
   if (parts.length <= 1) return sanitized;
   return `${parts[0]}.${parts.slice(1).join("")}`;
-}
-
-function networkPillClass(chainKey: SupportedChainKey) {
-  if (chainKey === "base") return "bg-cyan-400/15 text-cyan-300";
-  if (chainKey === "ethereum") return "bg-violet-400/15 text-violet-300";
-  return "bg-amber-400/15 text-amber-300";
-}
-
-function tokenIconClass(icon: TokenOption["icon"]) {
-  switch (icon) {
-    case "eth":
-    case "weth":
-      return "bg-violet-500 text-white";
-    case "usdc":
-      return "bg-blue-500 text-white";
-    case "bnb":
-    case "wbnb":
-      return "bg-amber-400 text-slate-950";
-    default:
-      return "bg-slate-600 text-white";
-  }
-}
-
-function tokenIconLabel(icon: TokenOption["icon"], symbol: string) {
-  switch (icon) {
-    case "eth":
-      return "Ξ";
-    case "weth":
-      return "W";
-    case "usdc":
-      return "$";
-    case "bnb":
-      return "B";
-    case "wbnb":
-      return "W";
-    default:
-      return symbol.slice(0, 1).toUpperCase();
-  }
-}
-
-function chainShortLabel(chainKey: SupportedChainKey) {
-  if (chainKey === "base") return "Base";
-  if (chainKey === "ethereum") return "ETH";
-  return "BSC";
-}
-
-function TokenPill({
-  token,
-  chainKey,
-}: {
-  token?: TokenOption;
-  chainKey: SupportedChainKey;
-}) {
-  if (!token) {
-    return (
-      <div className="flex items-center gap-2">
-        <div className="h-7 w-7 rounded-full bg-slate-700" />
-        <span className="text-sm font-semibold text-white">Select</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${tokenIconClass(
-          token.icon
-        )}`}
-      >
-        {tokenIconLabel(token.icon, token.symbol)}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-white">{token.symbol}</span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${networkPillClass(
-            chainKey
-          )}`}
-        >
-          {chainShortLabel(chainKey)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function TokenPicker({
-  value,
-  tokens,
-  chainKey,
-  placeholder = "Selecionar token",
-  onChange,
-}: TokenPickerProps) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (!rootRef.current) return;
-      if (rootRef.current.contains(event.target as Node)) return;
-      setOpen(false);
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
-  return (
-    <div className="relative" ref={rootRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex min-w-[164px] items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-left transition hover:bg-white/10"
-      >
-        {value ? (
-          <TokenPill token={value} chainKey={chainKey} />
-        ) : (
-          <span className="text-sm font-medium text-white">{placeholder}</span>
-        )}
-
-        <span className="text-sm text-slate-300">▾</span>
-      </button>
-
-      {open ? (
-        <div className="absolute right-0 z-30 mt-2 w-[260px] rounded-2xl border border-white/10 bg-[#121826] p-2 shadow-2xl shadow-black/40">
-          {tokens.map((token) => (
-            <button
-              key={`${chainKey}-${token.symbol}`}
-              type="button"
-              onClick={() => {
-                onChange(token.symbol);
-                setOpen(false);
-              }}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-white/5"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${tokenIconClass(
-                    token.icon
-                  )}`}
-                >
-                  {tokenIconLabel(token.icon, token.symbol)}
-                </div>
-
-                <div>
-                  <div className="text-sm font-semibold text-white">
-                    {token.symbol}
-                  </div>
-                  <div className="text-xs text-slate-400">{token.name}</div>
-                </div>
-              </div>
-
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${networkPillClass(
-                  chainKey
-                )}`}
-              >
-                {chainShortLabel(chainKey)}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 export default function SwapCard() {
@@ -304,9 +129,10 @@ export default function SwapCard() {
   const sellBalance = useBalance({
     address,
     chainId: selectedChain?.chainId,
-    token: !sellTokenIsNative && sellToken
-      ? (sellToken.address as `0x${string}`)
-      : undefined,
+    token:
+      !sellTokenIsNative && sellToken
+        ? (sellToken.address as `0x${string}`)
+        : undefined,
     query: {
       enabled: Boolean(address && selectedChain?.chainId && sellToken),
     },
@@ -381,7 +207,6 @@ export default function SwapCard() {
     }
   }
 
-  const sellDisplayValue = amount === "" ? "0" : amount;
   const buyDisplayValue = result?.price?.buyAmount
     ? formatTokenAmount(result.price.buyAmount, result.buyToken.decimals)
     : "0";
@@ -398,7 +223,7 @@ export default function SwapCard() {
           </h2>
         </div>
 
-        <ChainSelector
+        <NetworkPicker
           value={chain}
           onChange={handleChainChange}
           disabled={isSwitchingChain}
@@ -433,12 +258,17 @@ export default function SwapCard() {
               </p>
             </div>
 
-            <TokenPicker
+            <AssetPicker
+              chainKey={chain}
+              chainId={selectedChain?.chainId ?? 8453}
               value={sellToken}
               tokens={tokens}
-              chainKey={chain}
               onChange={(symbol) => {
                 setSellSymbol(symbol);
+                if (symbol === buySymbol) {
+                  const nextBuy = tokens.find((t) => t.symbol !== symbol);
+                  if (nextBuy) setBuySymbol(nextBuy.symbol);
+                }
                 setResult(null);
                 setError("");
               }}
@@ -473,10 +303,12 @@ export default function SwapCard() {
               </p>
             </div>
 
-            <TokenPicker
-              value={buyToken}
-              tokens={tokens.filter((token) => token.symbol !== sellSymbol)}
+            <AssetPicker
               chainKey={chain}
+              chainId={selectedChain?.chainId ?? 8453}
+              value={buyToken}
+              tokens={tokens}
+              excludeSymbols={[sellSymbol]}
               placeholder="Selecionar token"
               onChange={(symbol) => {
                 setBuySymbol(symbol);

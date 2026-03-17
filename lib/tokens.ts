@@ -1,11 +1,13 @@
 import type { SupportedChainKey } from "@/lib/chains";
 
+export type TokenIcon = "eth" | "usdc" | "weth" | "bnb" | "wbnb" | "usdt";
+
 export type TokenOption = {
   symbol: string;
   name: string;
   address: string;
   decimals: number;
-  icon: "eth" | "usdc" | "weth" | "bnb" | "wbnb";
+  icon: TokenIcon;
 };
 
 export const NATIVE_TOKEN_ADDRESS =
@@ -67,11 +69,11 @@ export const TOKENS_BY_CHAIN: Record<SupportedChainKey, TokenOption[]> = {
       icon: "bnb",
     },
     {
-      symbol: "USDC",
-      name: "USD Coin",
-      address: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+      symbol: "USDT",
+      name: "Tether USD",
+      address: "0x55d398326f99059fF775485246999027B3197955",
       decimals: 18,
-      icon: "usdc",
+      icon: "usdt",
     },
     {
       symbol: "WBNB",

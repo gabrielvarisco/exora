@@ -1,5 +1,62 @@
 import Link from "next/link";
 
+function pill(
+  label: string,
+  tone: "base" | "eth" | "bsc" = "base"
+) {
+  const toneClass =
+    tone === "base"
+      ? "bg-cyan-400/15 text-cyan-300"
+      : tone === "eth"
+        ? "bg-violet-400/15 text-violet-300"
+        : "bg-amber-400/15 text-amber-300";
+
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${toneClass}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function tokenPill(symbol: string, network: "base" | "eth" | "bsc") {
+  const iconClass =
+    symbol === "ETH" || symbol === "WETH"
+      ? "bg-violet-500 text-white"
+      : symbol === "USDC"
+        ? "bg-blue-500 text-white"
+        : "bg-amber-400 text-slate-950";
+
+  const iconLabel =
+    symbol === "ETH"
+      ? "Ξ"
+      : symbol === "USDC"
+        ? "$"
+        : symbol === "BNB"
+          ? "B"
+          : symbol.slice(0, 1);
+
+  return (
+    <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+      <div
+        className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${iconClass}`}
+      >
+        {iconLabel}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-white">{symbol}</span>
+        {network === "base"
+          ? pill("Base", "base")
+          : network === "eth"
+            ? pill("ETH", "eth")
+            : pill("BSC", "bsc")}
+      </div>
+      <span className="text-sm text-slate-300">▾</span>
+    </div>
+  );
+}
+
 export default function HomePage() {
   return (
     <main className="min-h-[calc(100vh-145px)] bg-slate-950 text-white">
@@ -72,36 +129,48 @@ export default function HomePage() {
 
             <div className="space-y-3">
               <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
-                <div className="mb-3 flex items-center justify-between text-sm text-slate-300">
-                  <span>Sell</span>
-                  <span>Token in</span>
+                <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
+                  <span>Vender</span>
+                  <span>Rede conectada</span>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <span className="text-3xl font-semibold text-white">1</span>
-                  <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-white">
-                    ETH
-                  </span>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-5xl font-semibold leading-none text-white">
+                      0
+                    </div>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Balance: 0 ETH
+                    </p>
+                  </div>
+
+                  {tokenPill("ETH", "base")}
                 </div>
               </div>
 
               <div className="flex justify-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-xl text-white">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[#161d2d] text-xl text-white">
                   ↓
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
-                <div className="mb-3 flex items-center justify-between text-sm text-slate-300">
-                  <span>Buy</span>
-                  <span>Token out</span>
+              <div className="rounded-[24px] border border-white/10 bg-white/[0.06] p-4">
+                <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
+                  <span>Comprar</span>
+                  <span>Output estimado</span>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <span className="text-3xl font-semibold text-slate-300">?</span>
-                  <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-white">
-                    USDC
-                  </span>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-5xl font-semibold leading-none text-slate-300">
+                      0
+                    </div>
+                    <p className="mt-2 text-sm text-slate-500">
+                      USD Coin
+                    </p>
+                  </div>
+
+                  {tokenPill("USDC", "base")}
                 </div>
               </div>
             </div>
