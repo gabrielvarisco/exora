@@ -72,14 +72,13 @@ function formatCompactBalance(value: string, decimals: number) {
   try {
     const formatted = formatUnits(BigInt(value), decimals);
     const num = Number(formatted);
-    if (!Number.isFinite(num)) return "0";
 
-    if (num === 0) return "0";
-    if (num < 0.01) return "<0,01";
+    if (!Number.isFinite(num) || num === 0) return "0";
+    if (num < 0.000001) return "<0,000001";
 
     return num.toLocaleString("pt-BR", {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 4,
+      maximumFractionDigits: num < 0.01 ? 6 : 4,
     });
   } catch {
     return "0";
