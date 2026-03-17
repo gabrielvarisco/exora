@@ -1,11 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useAccount, useBalance, useChainId } from "wagmi";
+import { useEffect, useMemo, useState } from "react";
+import {
+  useAccount,
+  useBalance,
+  useChainId,
+  useSwitchChain,
+} from "wagmi";
 import { formatUnits as viemFormatUnits } from "viem";
 import ChainSelector from "@/components/ChainSelector";
 import {
   getChainById,
+  getChainByKey,
   getDefaultChainKey,
   type SupportedChainKey,
 } from "@/lib/chains";
@@ -67,6 +73,7 @@ function formatTokenAmount(value?: string, decimals = 18) {
 export default function SwapCard() {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
 
   const walletChain = getChainById(walletChainId);
 
@@ -87,8 +94,29 @@ export default function SwapCard() {
   const [result, setResult] = useState<PriceResponse | null>(null);
   const [error, setError] = useState("");
 
+  // 1) Sempre que a wallet trocar de rede, sincroniza o analyzer
+  useEffect(() => {
+    if (!walletChain?.key) return;
+    if (walletChain.key === chain) return;
+
+    const nextTokens = getTokensForChain(walletChain.key);
+
+    setChain(walletChain.key);
+    setSellSymbol(nextTokens[0]?.symbol ?? "");
+    setBuySymbol(nextTokens[1]?.symbol ?? "");
+    setResult(null);
+    setError("");
+  }, [walletChain?.key]);
+
+  // 2) Balance preso na chain do analyzer
+  const selectedChain = getChainByKey(chain);
+
   const nativeBalance = useBalance({
     address,
+    chainId: selectedChain?.chainId,
+    query: {
+      enabled: Boolean(address && selectedChain?.chainId),
+    },
   });
 
   async function handleAnalyze() {
@@ -136,6 +164,31 @@ export default function SwapCard() {
     setError("");
   }
 
+  async function handleChainChange(value: SupportedChainKey) {
+    const nextChain = getChainByKey(value);
+    if (!nextChain) return;
+
+    setError("");
+
+    try {
+      // 3) Se a wallet estiver conectada, trocar no card troca a wallet também
+      if (isConnected && walletChainId !== nextChain.chainId) {
+        await switchChainAsync({ chainId: nextChain.chainId });
+      }
+
+      const nextTokens = getTokensForChain(value);
+
+      setChain(value);
+      setSellSymbol(nextTokens[0]?.symbol ?? "");
+      setBuySymbol(nextTokens[1]?.symbol ?? "");
+      setResult(null);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to switch network";
+      setError(message);
+    }
+  }
+
   return (
     <div className="w-full max-w-xl rounded-[28px] border border-white/10 bg-[#0f172a]/80 p-5 shadow-2xl shadow-black/30 backdrop-blur">
       <div className="mb-5 flex items-center justify-between">
@@ -150,14 +203,8 @@ export default function SwapCard() {
 
         <ChainSelector
           value={chain}
-          onChange={(value) => {
-            const nextTokens = getTokensForChain(value);
-            setChain(value);
-            setSellSymbol(nextTokens[0]?.symbol ?? "");
-            setBuySymbol(nextTokens[1]?.symbol ?? "");
-            setResult(null);
-            setError("");
-          }}
+          onChange={handleChainChange}
+          disabled={isSwitchingChain}
         />
       </div>
 
@@ -165,7 +212,9 @@ export default function SwapCard() {
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
           <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
             <span>Sell</span>
-            <span>{isConnected ? "Wallet connected" : "Wallet optional for price"}</span>
+            <span>
+              {isConnected ? "Wallet connected" : "Wallet optional for price"}
+            </span>
           </div>
 
           <div className="grid gap-3 md:grid-cols-[1fr_160px]">
@@ -194,12 +243,11 @@ export default function SwapCard() {
             </select>
           </div>
 
-          {nativeBalance.data ? (
-            <p className="mt-2 text-xs text-slate-400">
-              Native balance: {Number(nativeBalance.data.formatted).toFixed(4)}{" "}
-              {nativeBalance.data.symbol}
-            </p>
-          ) : null}
+          <p className="mt-2 text-xs text-slate-400">
+            {nativeBalance.data
+              ? `Native balance: ${Number(nativeBalance.data.formatted).toFixed(4)} ${nativeBalance.data.symbol}`
+              : `Native balance: --`}
+          </p>
         </div>
 
         <div className="flex justify-center">
@@ -246,20 +294,16 @@ export default function SwapCard() {
 
       <button
         onClick={handleAnalyze}
-        disabled={isLoading}
+        disabled={isLoading || isSwitchingChain}
         className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-4 text-base font-semibold text-slate-950 transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
         type="button"
       >
-        {isLoading ? "Analyzing..." : "Analyze Best Route"}
+        {isSwitchingChain
+          ? "Switching network..."
+          : isLoading
+            ? "Analyzing..."
+            : "Analyze Best Route"}
       </button>
-
-      {walletChain && walletChain.key !== chain ? (
-        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-sm text-amber-100">
-          Wallet is connected to {walletChain.label}, but analyzer is set to{" "}
-          {chain}. Pricing still works, but real swap execution should match the
-          selected chain.
-        </div>
-      ) : null}
 
       {error ? (
         <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-200">
