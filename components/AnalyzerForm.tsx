@@ -1,69 +1,110 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { SUPPORTED_CHAINS } from '@/lib/chains';
-import type { AnalysisSummary, SupportedChain } from '@/lib/types';
+import { useState } from "react";
+import { SUPPORTED_CHAINS, type SupportedChainKey } from "@/lib/chains";
 
-interface AnalyzerFormProps {
-  onStart: () => void;
-  onComplete: (payload: AnalysisSummary) => void;
-  onError: (message: string) => void;
-}
+type AnalyzerFormProps = {
+  onStart?: () => void;
+  onComplete?: (payload: {
+    chain: SupportedChainKey;
+    sellSymbol: string;
+    buySymbol: string;
+    amount: string;
+  }) => void;
+};
 
-export function AnalyzerForm({ onStart, onComplete, onError }: AnalyzerFormProps) {
-  const [chain, setChain] = useState<SupportedChain>('ethereum');
-  const [tokenIn, setTokenIn] = useState('WETH');
-  const [tokenOut, setTokenOut] = useState('USDC');
-  const [amountIn, setAmountIn] = useState('1');
+export default function AnalyzerForm({
+  onStart,
+  onComplete,
+}: AnalyzerFormProps) {
+  const [chain, setChain] = useState<SupportedChainKey>("base");
+  const [sellSymbol, setSellSymbol] = useState("ETH");
+  const [buySymbol, setBuySymbol] = useState("USDC");
+  const [amount, setAmount] = useState("0.01");
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onStart();
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
 
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain, tokenIn, tokenOut, amountIn: Number(amountIn) }),
-      });
-
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Analyzer request failed.');
-      onComplete(payload as AnalysisSummary);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'Unexpected analyzer error.');
-    }
+    onStart?.();
+    onComplete?.({
+      chain,
+      sellSymbol,
+      buySymbol,
+      amount,
+    });
   }
 
   return (
-    <form className="panel content-panel form-grid" onSubmit={handleSubmit}>
-      <div>
-        <div className="label">Chain</div>
-        <select className="field" value={chain} onChange={(event) => setChain(event.target.value as SupportedChain)}>
-          {SUPPORTED_CHAINS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-[28px] border border-white/10 bg-[#10182b]/90 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur"
+    >
+      <div className="mb-5">
+        <p className="text-xs uppercase tracking-[0.24em] text-cyan-300/80">
+          Exora form
+        </p>
+        <h2 className="mt-1 text-2xl font-semibold text-white">
+          Manual route input
+        </h2>
       </div>
 
-      <div>
-        <div className="label">Token in</div>
-        <input className="field" value={tokenIn} onChange={(event) => setTokenIn(event.target.value)} placeholder="WETH or contract address" />
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="flex flex-col gap-2">
+          <span className="text-sm text-slate-300">Chain</span>
+          <select
+            value={chain}
+            onChange={(e) => setChain(e.target.value as SupportedChainKey)}
+            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none"
+          >
+            {SUPPORTED_CHAINS.map((item) => (
+              <option
+                key={item.key}
+                value={item.key}
+                className="bg-slate-950 text-white"
+              >
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span className="text-sm text-slate-300">Amount</span>
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.01"
+            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
+          />
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span className="text-sm text-slate-300">Sell token</span>
+          <input
+            value={sellSymbol}
+            onChange={(e) => setSellSymbol(e.target.value.toUpperCase())}
+            placeholder="ETH"
+            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
+          />
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span className="text-sm text-slate-300">Buy token</span>
+          <input
+            value={buySymbol}
+            onChange={(e) => setBuySymbol(e.target.value.toUpperCase())}
+            placeholder="USDC"
+            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
+          />
+        </label>
       </div>
 
-      <div>
-        <div className="label">Token out</div>
-        <input className="field" value={tokenOut} onChange={(event) => setTokenOut(event.target.value)} placeholder="USDC or contract address" />
-      </div>
-
-      <div>
-        <div className="label">Amount</div>
-        <input className="field" type="number" min="0" step="any" value={amountIn} onChange={(event) => setAmountIn(event.target.value)} />
-      </div>
-
-      <div className="form-footnote">
-        Prefer contract addresses for higher precision. Symbols can be ambiguous across chains.
-      </div>
-
-      <button type="submit" className="btn btn-primary full-width">Analyze routes</button>
+      <button
+        type="submit"
+        className="mt-5 w-full rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-4 text-base font-semibold text-slate-950 transition hover:opacity-95"
+      >
+        Start analysis
+      </button>
     </form>
   );
 }
