@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { erc20Abi, formatUnits } from "viem";
-import { useAccount, useBalance, useReadContracts } from "wagmi";
+import { useAccount, useBalance } from "wagmi";
 import type { SupportedChainKey } from "@/lib/chains";
 import type { TokenOption } from "@/lib/tokens";
 import { isNativeTokenAddress } from "@/lib/tokens";
@@ -15,12 +14,6 @@ type Props = {
   onChange: (symbol: string) => void;
   placeholder?: string;
   excludeSymbols?: string[];
-};
-
-type TokenWithBalance = TokenOption & {
-  formattedBalance: string;
-  numericBalance: number;
-  hasBalance: boolean;
 };
 
 function tokenIconClass(icon: TokenOption["icon"]) {
@@ -69,29 +62,122 @@ function chainShortLabel(chainKey: SupportedChainKey) {
   return "BSC";
 }
 
-function parseBalance(raw: string, decimals: number) {
-  try {
-    const formatted = formatUnits(BigInt(raw), decimals);
-    const num = Number(formatted);
+function formatCompactBalance(formatted?: string) {
+  const num = Number(formatted ?? "0");
 
-    if (!Number.isFinite(num) || num <= 0) {
-      return { label: "0", numeric: 0 };
-    }
+  if (!Number.isFinite(num) || num === 0) return "0";
+  if (num < 0.000001) return "<0,000001";
 
-    if (num < 0.000001) {
-      return { label: "<0,000001", numeric: num };
-    }
+  return num.toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: num < 0.01 ? 6 : 4,
+  });
+}
 
-    return {
-      label: num.toLocaleString("pt-BR", {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: num < 0.01 ? 6 : 4,
-      }),
-      numeric: num,
-    };
-  } catch {
-    return { label: "0", numeric: 0 };
-  }
+function TokenRow({
+  chainKey,
+  chainId,
+  token,
+  onSelect,
+}: {
+  chainKey: SupportedChainKey;
+  chainId: number;
+  token: TokenOption;
+  onSelect: (symbol: string) => void;
+}) {
+  const { address } = useAccount();
+  const isNative = isNativeTokenAddress(token.address);
+
+  const balance = useBalance({
+    address,
+    chainId,
+    token: !isNative ? (token.address as `0x${string}`) : undefined,
+    query: {
+      enabled: Boolean(address && chainId),
+    },
+  });
+
+  const formatted = balance.data?.formatted ?? "0";
+  const amount = formatCompactBalance(formatted);
+  const numeric = Number(formatted);
+  const hasBalance = Number.isFinite(numeric) && numeric > 0;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(token.symbol)}
+      className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-white/5"
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${tokenIconClass(
+            token.icon
+          )}`}
+        >
+          {tokenIconLabel(token.icon, token.symbol)}
+        </div>
+
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-white">
+              {token.symbol}
+            </span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${networkPillClass(
+                chainKey
+              )}`}
+            >
+              {chainShortLabel(chainKey)}
+            </span>
+          </div>
+
+          <div className="text-xs text-slate-400">{token.name}</div>
+        </div>
+      </div>
+
+      <div className="text-right">
+        <div className="text-sm font-semibold text-white">{amount}</div>
+        <div className="text-[11px] text-slate-500">
+          {hasBalance ? "saldo detectado" : ""}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function TokenSection({
+  title,
+  chainKey,
+  chainId,
+  tokens,
+  onSelect,
+}: {
+  title: string;
+  chainKey: SupportedChainKey;
+  chainId: number;
+  tokens: TokenOption[];
+  onSelect: (symbol: string) => void;
+}) {
+  if (tokens.length === 0) return null;
+
+  return (
+    <>
+      <div className="px-2 pb-2 pt-1 text-sm font-semibold text-slate-300">
+        {title}
+      </div>
+      <div className="space-y-1">
+        {tokens.map((token) => (
+          <TokenRow
+            key={`${chainKey}-${token.symbol}`}
+            chainKey={chainKey}
+            chainId={chainId}
+            token={token}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+    </>
+  );
 }
 
 export default function AssetPicker({
@@ -103,7 +189,6 @@ export default function AssetPicker({
   placeholder = "Selecionar token",
   excludeSymbols = [],
 }: Props) {
-  const { address } = useAccount();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -112,37 +197,6 @@ export default function AssetPicker({
     const exclude = new Set(excludeSymbols.map((s) => s.toLowerCase()));
     return tokens.filter((token) => !exclude.has(token.symbol.toLowerCase()));
   }, [tokens, excludeSymbols]);
-
-  const nativeToken = filteredBaseTokens.find((token) =>
-    isNativeTokenAddress(token.address)
-  );
-
-  const erc20Tokens = filteredBaseTokens.filter(
-    (token) => !isNativeTokenAddress(token.address)
-  );
-
-  const nativeBalance = useBalance({
-    address,
-    chainId,
-    query: {
-      enabled: Boolean(address && nativeToken && chainId),
-    },
-  });
-
-  const erc20Balances = useReadContracts({
-    contracts: address
-      ? erc20Tokens.map((token) => ({
-          address: token.address as `0x${string}`,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [address],
-          chainId,
-        }))
-      : [],
-    query: {
-      enabled: Boolean(address && erc20Tokens.length > 0 && chainId),
-    },
-  });
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -157,60 +211,28 @@ export default function AssetPicker({
     };
   }, []);
 
-  const tokensWithBalances = useMemo<TokenWithBalance[]>(() => {
-    return filteredBaseTokens.map((token) => {
-      if (isNativeTokenAddress(token.address)) {
-        const raw = nativeBalance.data?.value?.toString() ?? "0";
-        const parsed = parseBalance(raw, token.decimals);
-
-        return {
-          ...token,
-          formattedBalance: parsed.label,
-          numericBalance: parsed.numeric,
-          hasBalance: parsed.numeric > 0,
-        };
-      }
-
-      const index = erc20Tokens.findIndex(
-        (item) => item.address.toLowerCase() === token.address.toLowerCase()
-      );
-
-      const result = index >= 0 ? erc20Balances.data?.[index] : undefined;
-
-      const raw =
-        result &&
-        result.status === "success" &&
-        typeof result.result === "bigint"
-          ? result.result.toString()
-          : "0";
-
-      const parsed = parseBalance(raw, token.decimals);
-
-      return {
-        ...token,
-        formattedBalance: parsed.label,
-        numericBalance: parsed.numeric,
-        hasBalance: parsed.numeric > 0,
-      };
-    });
-  }, [filteredBaseTokens, nativeBalance.data, erc20Balances.data, erc20Tokens]);
-
   const searched = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    const baseList =
-      q.length === 0
-        ? tokensWithBalances
-        : tokensWithBalances.filter((token) => {
-            const full = `${token.symbol} ${token.name}`.toLowerCase();
-            return full.includes(q);
-          });
+    if (!q) return filteredBaseTokens;
 
-    const owned = baseList.filter((token) => token.hasBalance);
-    const rest = baseList.filter((token) => !token.hasBalance);
+    return filteredBaseTokens.filter((token) => {
+      const full = `${token.symbol} ${token.name}`.toLowerCase();
+      return full.includes(q);
+    });
+  }, [search, filteredBaseTokens]);
 
-    return { owned, rest };
-  }, [search, tokensWithBalances]);
+  const ownedPriority = useMemo(() => {
+    // prioriza stable first visually, then native/wrapped
+    const priority = ["USDC", "USDT", "ETH", "BNB", "WETH", "WBNB"];
+    return [...searched].sort((a, b) => {
+      const ia = priority.indexOf(a.symbol);
+      const ib = priority.indexOf(b.symbol);
+      const pa = ia === -1 ? 999 : ia;
+      const pb = ib === -1 ? 999 : ib;
+      return pa - pb;
+    });
+  }, [searched]);
 
   return (
     <div className="relative" ref={rootRef}>
@@ -278,126 +300,23 @@ export default function AssetPicker({
             </div>
 
             <div className="max-h-[65vh] overflow-y-auto px-3 pb-4">
-              {searched.owned.length > 0 ? (
-                <>
-                  <div className="px-2 pb-2 pt-1 text-sm font-semibold text-slate-300">
-                    Seus tokens
-                  </div>
+              <TokenSection
+                title="Tokens"
+                chainKey={chainKey}
+                chainId={chainId}
+                tokens={ownedPriority}
+                onSelect={(symbol) => {
+                  onChange(symbol);
+                  setOpen(false);
+                  setSearch("");
+                }}
+              />
 
-                  <div className="space-y-1 pb-3">
-                    {searched.owned.map((token) => (
-                      <button
-                        key={`${chainKey}-${token.symbol}`}
-                        type="button"
-                        onClick={() => {
-                          onChange(token.symbol);
-                          setOpen(false);
-                          setSearch("");
-                        }}
-                        className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-white/5"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${tokenIconClass(
-                              token.icon
-                            )}`}
-                          >
-                            {tokenIconLabel(token.icon, token.symbol)}
-                          </div>
-
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-white">
-                                {token.symbol}
-                              </span>
-                              <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${networkPillClass(
-                                  chainKey
-                                )}`}
-                              >
-                                {chainShortLabel(chainKey)}
-                              </span>
-                            </div>
-
-                            <div className="text-xs text-slate-400">
-                              {token.name}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <div className="text-sm font-semibold text-white">
-                            {token.formattedBalance}
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            saldo detectado
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </>
+              {ownedPriority.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-slate-400">
+                  Nenhum token encontrado.
+                </div>
               ) : null}
-
-              <div className="px-2 pb-2 pt-1 text-sm font-semibold text-slate-300">
-                {searched.owned.length > 0 ? "Todos os tokens" : "Tokens"}
-              </div>
-
-              <div className="space-y-1">
-                {searched.rest.map((token) => (
-                  <button
-                    key={`${chainKey}-${token.symbol}`}
-                    type="button"
-                    onClick={() => {
-                      onChange(token.symbol);
-                      setOpen(false);
-                      setSearch("");
-                    }}
-                    className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-white/5"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${tokenIconClass(
-                          token.icon
-                        )}`}
-                      >
-                        {tokenIconLabel(token.icon, token.symbol)}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-white">
-                            {token.symbol}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${networkPillClass(
-                              chainKey
-                            )}`}
-                          >
-                            {chainShortLabel(chainKey)}
-                          </span>
-                        </div>
-
-                        <div className="text-xs text-slate-400">
-                          {token.name}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-sm font-medium text-slate-300">
-                        {token.formattedBalance}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-
-                {searched.owned.length === 0 && searched.rest.length === 0 ? (
-                  <div className="px-3 py-6 text-center text-sm text-slate-400">
-                    Nenhum token encontrado.
-                  </div>
-                ) : null}
-              </div>
             </div>
           </div>
         </div>
