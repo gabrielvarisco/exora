@@ -1,46 +1,29 @@
-import type { RouteCandidate } from '@/lib/types';
-import { formatPct, formatTokenAmount, formatUsd } from '@/lib/utils';
+"use client";
 
-export function RouteComparisonTable({ routes }: { routes: RouteCandidate[] }) {
+type RouteComparisonTableProps = {
+  rows?: Array<Record<string, unknown>>;
+};
+
+export function RouteComparisonTable({
+  rows = [],
+}: RouteComparisonTableProps) {
+  if (!rows.length) {
+    return (
+      <div className="rounded-[28px] border border-white/10 bg-[#10182b]/90 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur">
+        <p className="text-sm text-slate-400">Route comparison</p>
+        <h2 className="mt-1 text-2xl font-semibold text-white">
+          No routes to compare
+        </h2>
+      </div>
+    );
+  }
+
   return (
-    <div className="panel content-panel">
-      <div className="card-head" style={{ marginBottom: 16 }}>
-        <div>
-          <div className="label">Route comparison</div>
-          <h3 className="card-title">Alternative execution paths</h3>
-        </div>
-      </div>
-
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>DEX</th>
-              <th>Pair</th>
-              <th>Output</th>
-              <th>Impact</th>
-              <th>Slippage</th>
-              <th>Gas</th>
-              <th>Liquidity</th>
-              <th>Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            {routes.map((route) => (
-              <tr key={route.id}>
-                <td>{route.dexId}</td>
-                <td>{route.pairLabel}</td>
-                <td>{formatTokenAmount(route.estimatedOutput)} {route.estimatedOutputSymbol}</td>
-                <td>{formatPct(route.priceImpactPct)}</td>
-                <td>{formatPct(route.slippagePct)}</td>
-                <td>{formatUsd(route.gasUsd)}</td>
-                <td>{formatUsd(route.liquidityUsd)}</td>
-                <td>{route.executionScore}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="rounded-[28px] border border-white/10 bg-[#10182b]/90 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur">
+      <p className="mb-4 text-sm text-slate-400">Route comparison</p>
+      <pre className="overflow-auto rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-xs text-slate-300">
+        {JSON.stringify(rows, null, 2)}
+      </pre>
     </div>
   );
 }
