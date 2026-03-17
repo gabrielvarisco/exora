@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getZeroExPrice } from "@/lib/0x";
+import { getZeroExQuote } from "@/lib/0x";
 import { getTokenBySymbol } from "@/lib/tokens";
 import { toBaseUnits } from "@/lib/amounts";
 import type { SupportedChainKey } from "@/lib/chains";
@@ -9,16 +9,17 @@ type RequestBody = {
   sellSymbol: string;
   buySymbol: string;
   amount: string;
-  taker?: string;
+  taker: string;
+  slippageBps?: string;
 };
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as RequestBody;
 
-    if (!body.chain || !body.sellSymbol || !body.buySymbol || !body.amount) {
+    if (!body.chain || !body.sellSymbol || !body.buySymbol || !body.amount || !body.taker) {
       return NextResponse.json(
-        { error: "Missing chain, sellSymbol, buySymbol or amount" },
+        { error: "Missing chain, sellSymbol, buySymbol, amount or taker" },
         { status: 400 }
       );
     }
@@ -42,23 +43,31 @@ export async function POST(request: Request) {
 
     const sellAmount = toBaseUnits(body.amount, sellToken.decimals).toString();
 
-    const price = await getZeroExPrice({
+    if (BigInt(sellAmount) <= 0n) {
+      return NextResponse.json(
+        { error: "Amount must be greater than zero" },
+        { status: 400 }
+      );
+    }
+
+    const quote = await getZeroExQuote({
       chain: body.chain,
       sellToken: sellToken.address,
       buyToken: buyToken.address,
       sellAmount,
       taker: body.taker,
+      slippageBps: body.slippageBps ?? "100",
     });
 
     return NextResponse.json({
       chain: body.chain,
       sellToken,
       buyToken,
-      price,
+      quote,
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unexpected price error";
+      error instanceof Error ? error.message : "Unexpected quote error";
 
     return NextResponse.json({ error: message }, { status: 500 });
   }

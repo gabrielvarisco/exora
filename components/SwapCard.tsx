@@ -5,8 +5,12 @@ import {
   useAccount,
   useBalance,
   useChainId,
+  usePublicClient,
+  useSendTransaction,
   useSwitchChain,
+  useWriteContract,
 } from "wagmi";
+import { erc20Abi, maxUint256, type Address } from "viem";
 import { formatUnits as viemFormatUnits } from "viem";
 import AssetPicker from "@/components/AssetPicker";
 import NetworkPicker from "@/components/NetworkPicker";
@@ -19,25 +23,33 @@ import {
 import {
   getTokenBySymbol,
   getTokensForChain,
-  isNativeTokenAddress,
 } from "@/lib/tokens";
 
-type PriceResponse = {
+const NATIVE_TOKEN_ADDRESS =
+  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+
+type QuoteResponse = {
   chain: SupportedChainKey;
   sellToken: {
     symbol: string;
     decimals: number;
+    address: string;
+    name?: string;
   };
   buyToken: {
     symbol: string;
     decimals: number;
+    address: string;
+    name?: string;
   };
-  price: {
+  quote: {
     buyAmount?: string;
     sellAmount?: string;
     totalNetworkFee?: string;
+    allowanceTarget?: string;
     issues?: {
       allowance?: {
+        actual?: string;
         spender?: string;
       };
       balance?: {
@@ -52,9 +64,22 @@ type PriceResponse = {
         proportionBps?: string;
       }>;
     };
+    transaction?: {
+      to?: string;
+      data?: string;
+      value?: string;
+      gas?: string;
+      gasPrice?: string;
+      maxFeePerGas?: string;
+      maxPriorityFeePerGas?: string;
+    };
   };
   error?: string;
 };
+
+function isNativeToken(address?: string) {
+  return (address ?? "").toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase();
+}
 
 function formatTokenAmount(value?: string, decimals = 18) {
   if (!value) return "0";
@@ -113,7 +138,10 @@ function sanitizeAmountInput(value: string) {
 export default function SwapCard() {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
+  const publicClient = usePublicClient();
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
+  const { sendTransactionAsync } = useSendTransaction();
+  const { writeContractAsync } = useWriteContract();
 
   const walletChain = getChainById(walletChainId);
 
@@ -130,9 +158,14 @@ export default function SwapCard() {
     getTokensForChain(chain)[1]?.symbol ?? ""
   );
   const [amount, setAmount] = useState("0");
-  const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<PriceResponse | null>(null);
+  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isSwapping, setIsSwapping] = useState(false);
+  const [quoteResult, setQuoteResult] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
+  const [approvalHash, setApprovalHash] = useState<`0x${string}` | null>(null);
+  const [swapHash, setSwapHash] = useState<`0x${string}` | null>(null);
+  const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
     if (!walletChain?.key) return;
@@ -143,15 +176,16 @@ export default function SwapCard() {
     setChain(walletChain.key);
     setSellSymbol(nextTokens[0]?.symbol ?? "");
     setBuySymbol(nextTokens[1]?.symbol ?? "");
-    setResult(null);
+    setQuoteResult(null);
     setError("");
+    setSuccessMessage("");
   }, [walletChain?.key, chain]);
 
   const selectedChain = getChainByKey(chain);
   const sellToken = getTokenBySymbol(chain, sellSymbol);
   const buyToken = getTokenBySymbol(chain, buySymbol);
 
-  const sellTokenIsNative = isNativeTokenAddress(sellToken?.address);
+  const sellTokenIsNative = isNativeToken(sellToken?.address);
 
   const sellBalance = useBalance({
     address,
@@ -165,14 +199,65 @@ export default function SwapCard() {
     },
   });
 
+  const allowanceSpender =
+    quoteResult?.quote?.issues?.allowance?.spender ??
+    quoteResult?.quote?.allowanceTarget;
+
+  const actualAllowance = BigInt(
+    quoteResult?.quote?.issues?.allowance?.actual ?? "0"
+  );
+  const quotedSellAmount = BigInt(quoteResult?.quote?.sellAmount ?? "0");
+
+  const needsApproval =
+    Boolean(
+      quoteResult &&
+        !sellTokenIsNative &&
+        allowanceSpender &&
+        quotedSellAmount > BigInt(0) &&
+        actualAllowance < quotedSellAmount
+    );
+
+  async function ensureWalletOnSelectedChain() {
+    if (!selectedChain) {
+      throw new Error("Selected chain is invalid");
+    }
+
+    if (!isConnected || !address) {
+      throw new Error("Connect your wallet first");
+    }
+
+    if (walletChainId !== selectedChain.chainId) {
+      await switchChainAsync({ chainId: selectedChain.chainId });
+    }
+  }
+
   async function handleAnalyze() {
     setError("");
-    setResult(null);
+    setSuccessMessage("");
+    setApprovalHash(null);
+    setSwapHash(null);
+    setQuoteResult(null);
 
     try {
-      setIsLoading(true);
+      if (!selectedChain) {
+        throw new Error("Invalid selected chain");
+      }
 
-      const response = await fetch("/api/price", {
+      if (!address) {
+        throw new Error("Connect your wallet first");
+      }
+
+      const normalizedAmount = amount.trim().replace(",", ".");
+
+      if (!normalizedAmount || Number(normalizedAmount) <= 0) {
+        throw new Error("Enter an amount greater than zero");
+      }
+
+      await ensureWalletOnSelectedChain();
+
+      setIsLoadingQuote(true);
+
+      const response = await fetch("/api/quote", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -181,24 +266,110 @@ export default function SwapCard() {
           chain,
           sellSymbol,
           buySymbol,
-          amount,
+          amount: normalizedAmount,
           taker: address,
+          slippageBps: "100",
         }),
       });
 
-      const data = (await response.json()) as PriceResponse;
+      const data = (await response.json()) as QuoteResponse;
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to get price");
+        throw new Error(data.error || "Failed to get executable quote");
       }
 
-      setResult(data);
+      setQuoteResult(data);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unexpected price error";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Unexpected quote error");
     } finally {
-      setIsLoading(false);
+      setIsLoadingQuote(false);
+    }
+  }
+
+  async function handleApprove() {
+    try {
+      if (!sellToken || sellTokenIsNative) {
+        throw new Error("Approval is only needed for ERC-20 tokens");
+      }
+
+      if (!allowanceSpender) {
+        throw new Error("Missing allowance spender from quote");
+      }
+
+      await ensureWalletOnSelectedChain();
+
+      setError("");
+      setSuccessMessage("");
+      setIsApproving(true);
+
+      const hash = await writeContractAsync({
+        address: sellToken.address as Address,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [allowanceSpender as Address, maxUint256],
+        chainId: selectedChain?.chainId,
+      });
+
+      setApprovalHash(hash);
+
+      if (!publicClient) {
+        throw new Error("Public client unavailable");
+      }
+
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      setSuccessMessage(`Approval confirmed for ${sellSymbol}.`);
+
+      // Refresh quote after approval to get fresh calldata / allowance state
+      await handleAnalyze();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approval failed");
+    } finally {
+      setIsApproving(false);
+    }
+  }
+
+  async function handleSwap() {
+    try {
+      if (!quoteResult?.quote?.transaction?.to || !quoteResult?.quote?.transaction?.data) {
+        throw new Error("Missing executable transaction from quote");
+      }
+
+      await ensureWalletOnSelectedChain();
+
+      setError("");
+      setSuccessMessage("");
+      setIsSwapping(true);
+
+      const tx = quoteResult.quote.transaction;
+
+      const hash = await sendTransactionAsync({
+        chainId: selectedChain?.chainId,
+        to: tx.to as Address,
+        data: tx.data as `0x${string}`,
+        value: tx.value ? BigInt(tx.value) : BigInt(0),
+        gas: tx.gas ? BigInt(tx.gas) : undefined,
+        gasPrice: tx.gasPrice ? BigInt(tx.gasPrice) : undefined,
+        maxFeePerGas: tx.maxFeePerGas ? BigInt(tx.maxFeePerGas) : undefined,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas
+          ? BigInt(tx.maxPriorityFeePerGas)
+          : undefined,
+      });
+
+      setSwapHash(hash);
+
+      if (!publicClient) {
+        throw new Error("Public client unavailable");
+      }
+
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      setSuccessMessage(`Swap executed successfully. Tx: ${hash}`);
+      await handleAnalyze();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Swap failed");
+    } finally {
+      setIsSwapping(false);
     }
   }
 
@@ -206,8 +377,9 @@ export default function SwapCard() {
     const currentSell = sellSymbol;
     setSellSymbol(buySymbol);
     setBuySymbol(currentSell);
-    setResult(null);
+    setQuoteResult(null);
     setError("");
+    setSuccessMessage("");
   }
 
   async function handleChainChange(value: SupportedChainKey) {
@@ -215,6 +387,10 @@ export default function SwapCard() {
     if (!nextChain) return;
 
     setError("");
+    setSuccessMessage("");
+    setQuoteResult(null);
+    setApprovalHash(null);
+    setSwapHash(null);
 
     try {
       if (isConnected && walletChainId !== nextChain.chainId) {
@@ -226,7 +402,6 @@ export default function SwapCard() {
       setChain(value);
       setSellSymbol(nextTokens[0]?.symbol ?? "");
       setBuySymbol(nextTokens[1]?.symbol ?? "");
-      setResult(null);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to switch network";
@@ -237,13 +412,47 @@ export default function SwapCard() {
   function handleMax() {
     if (!sellBalance.data?.formatted) return;
     setAmount(sellBalance.data.formatted);
-    setResult(null);
+    setQuoteResult(null);
     setError("");
+    setSuccessMessage("");
   }
 
-  const buyDisplayValue = result?.price?.buyAmount
-    ? formatTokenAmount(result.price.buyAmount, result.buyToken.decimals)
+  const buyDisplayValue = quoteResult?.quote?.buyAmount
+    ? formatTokenAmount(quoteResult.quote.buyAmount, quoteResult.buyToken.decimals)
     : "0";
+
+  const primaryButtonLabel = (() => {
+    if (!isConnected) return "Conectar carteira";
+    if (isSwitchingChain) return "Switching network...";
+    if (isLoadingQuote) return "Loading executable quote...";
+    if (!quoteResult) return "Analyze Best Route";
+    if (isApproving) return `Approving ${sellSymbol}...`;
+    if (needsApproval) return `Approve ${sellSymbol}`;
+    if (isSwapping) return "Swapping...";
+    return "Swap now";
+  })();
+
+  const primaryButtonAction = async () => {
+    if (!isConnected) {
+      setError("Connect your wallet first");
+      return;
+    }
+
+    if (!quoteResult) {
+      await handleAnalyze();
+      return;
+    }
+
+    if (needsApproval) {
+      await handleApprove();
+      return;
+    }
+
+    await handleSwap();
+  };
+
+  const primaryButtonDisabled =
+    isSwitchingChain || isLoadingQuote || isApproving || isSwapping;
 
   return (
     <div className="w-full max-w-xl rounded-[28px] border border-white/10 bg-[#0f172a]/80 p-4 shadow-2xl shadow-black/30 backdrop-blur">
@@ -277,8 +486,9 @@ export default function SwapCard() {
                 value={amount}
                 onChange={(e) => {
                   setAmount(sanitizeAmountInput(e.target.value));
-                  setResult(null);
+                  setQuoteResult(null);
                   setError("");
+                  setSuccessMessage("");
                 }}
                 placeholder="0"
                 inputMode="decimal"
@@ -315,8 +525,9 @@ export default function SwapCard() {
                   const nextBuy = tokens.find((t) => t.symbol !== symbol);
                   if (nextBuy) setBuySymbol(nextBuy.symbol);
                 }
-                setResult(null);
+                setQuoteResult(null);
                 setError("");
+                setSuccessMessage("");
               }}
             />
           </div>
@@ -358,8 +569,9 @@ export default function SwapCard() {
               placeholder="Selecionar token"
               onChange={(symbol) => {
                 setBuySymbol(symbol);
-                setResult(null);
+                setQuoteResult(null);
                 setError("");
+                setSuccessMessage("");
               }}
             />
           </div>
@@ -367,19 +579,37 @@ export default function SwapCard() {
       </div>
 
       <button
-        onClick={handleAnalyze}
-        disabled={isLoading || isSwitchingChain}
+        onClick={primaryButtonAction}
+        disabled={primaryButtonDisabled}
         className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-4 text-base font-semibold text-slate-950 transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
         type="button"
       >
-        {isSwitchingChain
-          ? "Switching network..."
-          : isLoading
-            ? "Analyzing..."
-            : isConnected
-              ? "Analyze Best Route"
-              : "Conectar carteira"}
+        {primaryButtonLabel}
       </button>
+
+      {quoteResult && !needsApproval ? (
+        <p className="mt-3 text-center text-xs text-cyan-300/80">
+          Quote executável pronta. Pode enviar o swap agora.
+        </p>
+      ) : null}
+
+      {approvalHash ? (
+        <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-xs text-cyan-200 break-all">
+          Approval tx: {approvalHash}
+        </div>
+      ) : null}
+
+      {swapHash ? (
+        <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-200 break-all">
+          Swap tx: {swapHash}
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-200">
+          {successMessage}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-200">
@@ -387,12 +617,15 @@ export default function SwapCard() {
         </div>
       ) : null}
 
-      {result ? (
+      {quoteResult ? (
         <div className="mt-5 space-y-3">
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <p className="text-sm text-slate-400">Estimated buy amount</p>
             <p className="mt-1 text-xl font-semibold text-white">
-              {formatTokenAmount(result.price.buyAmount, result.buyToken.decimals)}{" "}
+              {formatTokenAmount(
+                quoteResult.quote.buyAmount,
+                quoteResult.buyToken.decimals
+              )}{" "}
               {buySymbol}
             </p>
           </div>
@@ -401,7 +634,10 @@ export default function SwapCard() {
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
               <p className="text-sm text-slate-400">Sell amount</p>
               <p className="mt-1 text-white">
-                {formatTokenAmount(result.price.sellAmount, result.sellToken.decimals)}{" "}
+                {formatTokenAmount(
+                  quoteResult.quote.sellAmount,
+                  quoteResult.sellToken.decimals
+                )}{" "}
                 {sellSymbol}
               </p>
             </div>
@@ -409,26 +645,27 @@ export default function SwapCard() {
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
               <p className="text-sm text-slate-400">Network fee</p>
               <p className="mt-1 text-white">
-                {result.price.totalNetworkFee
-                  ? formatTokenAmount(result.price.totalNetworkFee, 18)
+                {quoteResult.quote.totalNetworkFee
+                  ? formatTokenAmount(quoteResult.quote.totalNetworkFee, 18)
                   : "0"}
               </p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <p className="text-sm text-slate-400">Allowance spender</p>
-            <p className="mt-1 break-all text-xs text-slate-300">
-              {result.price.issues?.allowance?.spender ??
-                "Not required for native token"}
-            </p>
-          </div>
+          {!sellTokenIsNative ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-sm text-slate-400">Allowance target</p>
+              <p className="mt-1 break-all text-xs text-slate-300">
+                {allowanceSpender ?? "No allowance target returned"}
+              </p>
+            </div>
+          ) : null}
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <p className="text-sm text-slate-400">Route sources</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {result.price.route?.fills?.length ? (
-                result.price.route.fills.map((fill, index) => (
+              {quoteResult.quote.route?.fills?.length ? (
+                quoteResult.quote.route.fills.map((fill, index) => (
                   <span
                     key={`${fill.source ?? "source"}-${index}`}
                     className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-xs text-cyan-300"
