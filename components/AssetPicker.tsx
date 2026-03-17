@@ -19,6 +19,7 @@ type Props = {
 
 type TokenWithBalance = TokenOption & {
   formattedBalance: string;
+  numericBalance: number;
   hasBalance: boolean;
 };
 
@@ -68,25 +69,29 @@ function chainShortLabel(chainKey: SupportedChainKey) {
   return "BSC";
 }
 
-function formatCompactBalance(value: string, decimals: number) {
+function parseBalance(raw: string, decimals: number) {
   try {
-    const formatted = formatUnits(BigInt(value), decimals);
+    const formatted = formatUnits(BigInt(raw), decimals);
     const num = Number(formatted);
 
-    if (!Number.isFinite(num) || num === 0) return "0";
-    if (num < 0.000001) return "<0,000001";
+    if (!Number.isFinite(num) || num <= 0) {
+      return { label: "0", numeric: 0 };
+    }
 
-    return num.toLocaleString("pt-BR", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: num < 0.01 ? 6 : 4,
-    });
+    if (num < 0.000001) {
+      return { label: "<0,000001", numeric: num };
+    }
+
+    return {
+      label: num.toLocaleString("pt-BR", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: num < 0.01 ? 6 : 4,
+      }),
+      numeric: num,
+    };
   } catch {
-    return "0";
+    return { label: "0", numeric: 0 };
   }
-}
-
-function formatUsdPlaceholder(hasBalance: boolean) {
-  return hasBalance ? "saldo detectado" : "";
 }
 
 export default function AssetPicker({
@@ -120,7 +125,7 @@ export default function AssetPicker({
     address,
     chainId,
     query: {
-      enabled: Boolean(address && nativeToken),
+      enabled: Boolean(address && nativeToken && chainId),
     },
   });
 
@@ -135,7 +140,7 @@ export default function AssetPicker({
         }))
       : [],
     query: {
-      enabled: Boolean(address && erc20Tokens.length > 0),
+      enabled: Boolean(address && erc20Tokens.length > 0 && chainId),
     },
   });
 
@@ -156,10 +161,13 @@ export default function AssetPicker({
     return filteredBaseTokens.map((token) => {
       if (isNativeTokenAddress(token.address)) {
         const raw = nativeBalance.data?.value?.toString() ?? "0";
+        const parsed = parseBalance(raw, token.decimals);
+
         return {
           ...token,
-          formattedBalance: formatCompactBalance(raw, token.decimals),
-          hasBalance: raw !== "0",
+          formattedBalance: parsed.label,
+          numericBalance: parsed.numeric,
+          hasBalance: parsed.numeric > 0,
         };
       }
 
@@ -168,15 +176,21 @@ export default function AssetPicker({
       );
 
       const result = index >= 0 ? erc20Balances.data?.[index] : undefined;
+
       const raw =
-        result && result.status === "success" && typeof result.result === "bigint"
+        result &&
+        result.status === "success" &&
+        typeof result.result === "bigint"
           ? result.result.toString()
           : "0";
 
+      const parsed = parseBalance(raw, token.decimals);
+
       return {
         ...token,
-        formattedBalance: formatCompactBalance(raw, token.decimals),
-        hasBalance: raw !== "0",
+        formattedBalance: parsed.label,
+        numericBalance: parsed.numeric,
+        hasBalance: parsed.numeric > 0,
       };
     });
   }, [filteredBaseTokens, nativeBalance.data, erc20Balances.data, erc20Tokens]);
@@ -316,7 +330,7 @@ export default function AssetPicker({
                             {token.formattedBalance}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            {formatUsdPlaceholder(token.hasBalance)}
+                            saldo detectado
                           </div>
                         </div>
                       </button>

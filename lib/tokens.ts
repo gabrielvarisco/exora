@@ -1,6 +1,12 @@
 import type { SupportedChainKey } from "@/lib/chains";
 
-export type TokenIcon = "eth" | "usdc" | "weth" | "bnb" | "wbnb" | "usdt";
+export type TokenIcon =
+  | "eth"
+  | "usdc"
+  | "weth"
+  | "bnb"
+  | "wbnb"
+  | "usdt";
 
 export type TokenOption = {
   symbol: string;
