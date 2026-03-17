@@ -1,25 +1,59 @@
-import type { SupportedChain } from '@/lib/types';
+export type SupportedChainKey = "base" | "ethereum" | "bsc";
 
-export const SUPPORTED_CHAINS: { value: SupportedChain; label: string; gasUsd: number }[] = [
-  { value: 'ethereum', label: 'Ethereum', gasUsd: 11.5 },
-  { value: 'arbitrum', label: 'Arbitrum', gasUsd: 0.65 },
-  { value: 'base', label: 'Base', gasUsd: 0.45 },
-  { value: 'bsc', label: 'BNB Chain', gasUsd: 0.32 },
-  { value: 'polygon', label: 'Polygon', gasUsd: 0.28 },
-  { value: 'optimism', label: 'Optimism', gasUsd: 0.52 },
-  { value: 'solana', label: 'Solana', gasUsd: 0.04 },
-];
-
-export const GECKO_NETWORK_MAP: Record<SupportedChain, string> = {
-  ethereum: 'eth',
-  arbitrum: 'arbitrum',
-  base: 'base',
-  bsc: 'bsc',
-  polygon: 'polygon_pos',
-  optimism: 'optimism',
-  solana: 'solana',
+export type SupportedChain = {
+  key: SupportedChainKey;
+  label: string;
+  chainId: number;
+  zeroExChainId: number;
+  nativeSymbol: string;
 };
 
-export function getBaseGasUsd(chain: SupportedChain) {
-  return SUPPORTED_CHAINS.find((item) => item.value === chain)?.gasUsd ?? 1;
+export const SUPPORTED_CHAINS: SupportedChain[] = [
+  {
+    key: "base",
+    label: "Base",
+    chainId: 8453,
+    zeroExChainId: 8453,
+    nativeSymbol: "ETH",
+  },
+  {
+    key: "ethereum",
+    label: "Ethereum",
+    chainId: 1,
+    zeroExChainId: 1,
+    nativeSymbol: "ETH",
+  },
+  {
+    key: "bsc",
+    label: "BNB Chain",
+    chainId: 56,
+    zeroExChainId: 56,
+    nativeSymbol: "BNB",
+  },
+];
+
+export function getSupportedChainsFromEnv(): SupportedChain[] {
+  const raw = process.env.NEXT_PUBLIC_SUPPORTED_CHAINS ?? "base,ethereum,bsc";
+  const keys = raw.split(",").map((item) => item.trim().toLowerCase());
+
+  return SUPPORTED_CHAINS.filter((chain) => keys.includes(chain.key));
+}
+
+export function getDefaultChainKey(): SupportedChainKey {
+  const envValue = (process.env.NEXT_PUBLIC_DEFAULT_CHAIN ?? "base").toLowerCase();
+
+  if (envValue === "ethereum" || envValue === "bsc" || envValue === "base") {
+    return envValue;
+  }
+
+  return "base";
+}
+
+export function getChainByKey(key: string): SupportedChain | undefined {
+  return SUPPORTED_CHAINS.find((chain) => chain.key === key);
+}
+
+export function getChainById(chainId?: number): SupportedChain | undefined {
+  if (!chainId) return undefined;
+  return SUPPORTED_CHAINS.find((chain) => chain.chainId === chainId);
 }

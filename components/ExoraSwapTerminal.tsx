@@ -1,0 +1,297 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useAccount, useBalance, useChainId } from "wagmi";
+import { formatUnits as viemFormatUnits } from "viem";
+import ChainSelector from "@/components/ChainSelector";
+import {
+  getChainById,
+  getDefaultChainKey,
+  type SupportedChainKey,
+} from "@/lib/chains";
+import { getTokensForChain } from "@/lib/tokens";
+
+type PriceResponse = {
+  chain: SupportedChainKey;
+  sellToken: {
+    symbol: string;
+    decimals: number;
+  };
+  buyToken: {
+    symbol: string;
+    decimals: number;
+  };
+  price: {
+    buyAmount?: string;
+    sellAmount?: string;
+    totalNetworkFee?: string;
+    issues?: {
+      allowance?: {
+        spender?: string;
+      };
+    };
+    route?: {
+      fills?: Array<{
+        source?: string;
+        proportionBps?: string;
+      }>;
+    };
+  };
+  error?: string;
+};
+
+function formatTokenAmount(value?: string, decimals = 18) {
+  if (!value) return "-";
+
+  try {
+    const formatted = viemFormatUnits(BigInt(value), decimals);
+    const asNumber = Number(formatted);
+
+    if (Number.isNaN(asNumber)) return formatted;
+
+    return asNumber.toLocaleString(undefined, {
+      maximumFractionDigits: 6,
+    });
+  } catch {
+    return "-";
+  }
+}
+
+export default function ExoraSwapTerminal() {
+  const { address, isConnected } = useAccount();
+  const walletChainId = useChainId();
+  const walletChain = getChainById(walletChainId);
+
+  const [chain, setChain] = useState<SupportedChainKey>(
+    walletChain?.key ?? getDefaultChainKey()
+  );
+
+  const tokens = useMemo(() => getTokensForChain(chain), [chain]);
+
+  const [sellSymbol, setSellSymbol] = useState(
+    getTokensForChain(chain)[0]?.symbol ?? ""
+  );
+  const [buySymbol, setBuySymbol] = useState(
+    getTokensForChain(chain)[1]?.symbol ?? ""
+  );
+  const [amount, setAmount] = useState("0.01");
+  const [isLoading, setIsLoading] = useState(false);
+  const [result, setResult] = useState<PriceResponse | null>(null);
+  const [error, setError] = useState("");
+
+  const nativeBalance = useBalance({ address });
+
+  async function handleAnalyze() {
+    setError("");
+    setResult(null);
+
+    try {
+      setIsLoading(true);
+
+      const response = await fetch("/api/price", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          chain,
+          sellSymbol,
+          buySymbol,
+          amount,
+          taker: address,
+        }),
+      });
+
+      const data = (await response.json()) as PriceResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to get price");
+      }
+
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected price error");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function handleFlip() {
+    const currentSell = sellSymbol;
+    setSellSymbol(buySymbol);
+    setBuySymbol(currentSell);
+    setResult(null);
+    setError("");
+  }
+
+  return (
+    <section className="mx-auto w-full max-w-xl">
+      <div className="rounded-[32px] border border-white/10 bg-[#10182b]/90 p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur">
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-cyan-300/80">
+              Exora analyzer
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold text-white">
+              Real multi-chain route pricing
+            </h2>
+          </div>
+
+          <ChainSelector
+            value={chain}
+            onChange={(value) => {
+              const nextTokens = getTokensForChain(value);
+              setChain(value);
+              setSellSymbol(nextTokens[0]?.symbol ?? "");
+              setBuySymbol(nextTokens[1]?.symbol ?? "");
+              setResult(null);
+              setError("");
+            }}
+          />
+        </div>
+
+        <div className="space-y-3">
+          <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+            <div className="mb-3 flex items-center justify-between text-sm text-slate-300">
+              <span>Sell</span>
+              <span>{isConnected ? "Wallet connected" : "Wallet optional"}</span>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[1fr_160px]">
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.0"
+                inputMode="decimal"
+                className="w-full bg-transparent text-4xl font-semibold text-white outline-none placeholder:text-slate-500"
+              />
+
+              <select
+                value={sellSymbol}
+                onChange={(e) => setSellSymbol(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-right text-lg font-medium text-white outline-none"
+              >
+                {tokens.map((token) => (
+                  <option
+                    key={token.symbol}
+                    value={token.symbol}
+                    className="bg-slate-900 text-white"
+                  >
+                    {token.symbol}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {nativeBalance.data ? (
+              <p className="mt-3 text-xs text-slate-400">
+                Native balance: {Number(nativeBalance.data.formatted).toFixed(4)}{" "}
+                {nativeBalance.data.symbol}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleFlip}
+              className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-xl text-white transition hover:bg-white/10"
+            >
+              ↓
+            </button>
+          </div>
+
+          <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+            <div className="mb-3 flex items-center justify-between text-sm text-slate-300">
+              <span>Buy</span>
+              <span>Route output</span>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[1fr_160px]">
+              <div className="flex items-center text-4xl font-semibold text-slate-300">
+                {result?.price?.buyAmount
+                  ? formatTokenAmount(result.price.buyAmount, result.buyToken.decimals)
+                  : "?"}
+              </div>
+
+              <select
+                value={buySymbol}
+                onChange={(e) => setBuySymbol(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-right text-lg font-medium text-white outline-none"
+              >
+                {tokens.map((token) => (
+                  <option
+                    key={token.symbol}
+                    value={token.symbol}
+                    className="bg-slate-900 text-white"
+                  >
+                    {token.symbol}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={handleAnalyze}
+          disabled={isLoading}
+          className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-4 text-base font-semibold text-slate-950 transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+        >
+          {isLoading ? "Analyzing..." : "Analyze Best Route"}
+        </button>
+
+        {walletChain && walletChain.key !== chain ? (
+          <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-sm text-amber-100">
+            Wallet connected to {walletChain.label}, but analyzer is set to {chain}.
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-200">
+            {error}
+          </div>
+        ) : null}
+
+        {result ? (
+          <div className="mt-5 space-y-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-sm text-slate-400">Estimated buy amount</p>
+              <p className="mt-1 text-xl font-semibold text-white">
+                {formatTokenAmount(result.price.buyAmount, result.buyToken.decimals)}{" "}
+                {buySymbol}
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <p className="text-sm text-slate-400">Sell amount</p>
+                <p className="mt-1 text-white">
+                  {formatTokenAmount(result.price.sellAmount, result.sellToken.decimals)}{" "}
+                  {sellSymbol}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <p className="text-sm text-slate-400">Network fee</p>
+                <p className="mt-1 text-white">
+                  {result.price.totalNetworkFee
+                    ? formatTokenAmount(result.price.totalNetworkFee, 18)
+                    : "-"}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-sm text-slate-400">Allowance spender</p>
+              <p className="mt-1 break-all text-xs text-slate-300">
+                {result.price.issues?.allowance?.spender ?? "Not required for native token"}
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
