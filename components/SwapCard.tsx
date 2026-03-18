@@ -21,6 +21,8 @@ import {
   type SupportedChainKey,
 } from "@/lib/chains";
 import {
+  getDefaultBuySymbol,
+  getDefaultSellSymbol,
   getTokenBySymbol,
   getTokensForChain,
 } from "@/lib/tokens";
@@ -135,6 +137,15 @@ function sanitizeAmountInput(value: string) {
   return `${parts[0]}.${parts.slice(1).join("")}`;
 }
 
+async function readJsonSafe(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(text || `Unexpected ${response.status} response`);
+  }
+}
+
 export default function SwapCard() {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
@@ -152,10 +163,10 @@ export default function SwapCard() {
   const tokens = useMemo(() => getTokensForChain(chain), [chain]);
 
   const [sellSymbol, setSellSymbol] = useState<string>(
-    getTokensForChain(chain)[0]?.symbol ?? ""
+    getDefaultSellSymbol(walletChain?.key ?? getDefaultChainKey())
   );
   const [buySymbol, setBuySymbol] = useState<string>(
-    getTokensForChain(chain)[1]?.symbol ?? ""
+    getDefaultBuySymbol(walletChain?.key ?? getDefaultChainKey())
   );
   const [amount, setAmount] = useState("0");
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
@@ -171,11 +182,9 @@ export default function SwapCard() {
     if (!walletChain?.key) return;
     if (walletChain.key === chain) return;
 
-    const nextTokens = getTokensForChain(walletChain.key);
-
     setChain(walletChain.key);
-    setSellSymbol(nextTokens[0]?.symbol ?? "");
-    setBuySymbol(nextTokens[1]?.symbol ?? "");
+    setSellSymbol(getDefaultSellSymbol(walletChain.key));
+    setBuySymbol(getDefaultBuySymbol(walletChain.key));
     setQuoteResult(null);
     setError("");
     setSuccessMessage("");
@@ -208,14 +217,13 @@ export default function SwapCard() {
   );
   const quotedSellAmount = BigInt(quoteResult?.quote?.sellAmount ?? "0");
 
-  const needsApproval =
-    Boolean(
-      quoteResult &&
-        !sellTokenIsNative &&
-        allowanceSpender &&
-        quotedSellAmount > BigInt(0) &&
-        actualAllowance < quotedSellAmount
-    );
+  const needsApproval = Boolean(
+    quoteResult &&
+      !sellTokenIsNative &&
+      allowanceSpender &&
+      quotedSellAmount > BigInt(0) &&
+      actualAllowance < quotedSellAmount
+  );
 
   async function ensureWalletOnSelectedChain() {
     if (!selectedChain) {
@@ -272,7 +280,7 @@ export default function SwapCard() {
         }),
       });
 
-      const data = (await response.json()) as QuoteResponse;
+      const data = (await readJsonSafe(response)) as QuoteResponse;
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to get executable quote");
@@ -319,8 +327,6 @@ export default function SwapCard() {
       await publicClient.waitForTransactionReceipt({ hash });
 
       setSuccessMessage(`Approval confirmed for ${sellSymbol}.`);
-
-      // Refresh quote after approval to get fresh calldata / allowance state
       await handleAnalyze();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Approval failed");
@@ -365,7 +371,9 @@ export default function SwapCard() {
       await publicClient.waitForTransactionReceipt({ hash });
 
       setSuccessMessage(`Swap executed successfully. Tx: ${hash}`);
-      await handleAnalyze();
+      await sellBalance.refetch();
+      setQuoteResult(null);
+      setAmount("0");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Swap failed");
     } finally {
@@ -397,11 +405,9 @@ export default function SwapCard() {
         await switchChainAsync({ chainId: nextChain.chainId });
       }
 
-      const nextTokens = getTokensForChain(value);
-
       setChain(value);
-      setSellSymbol(nextTokens[0]?.symbol ?? "");
-      setBuySymbol(nextTokens[1]?.symbol ?? "");
+      setSellSymbol(getDefaultSellSymbol(value));
+      setBuySymbol(getDefaultBuySymbol(value));
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to switch network";
@@ -612,7 +618,7 @@ export default function SwapCard() {
       ) : null}
 
       {error ? (
-        <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-200">
+        <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-200 break-all">
           {error}
         </div>
       ) : null}
@@ -660,27 +666,6 @@ export default function SwapCard() {
               </p>
             </div>
           ) : null}
-
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <p className="text-sm text-slate-400">Route sources</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {quoteResult.quote.route?.fills?.length ? (
-                quoteResult.quote.route.fills.map((fill, index) => (
-                  <span
-                    key={`${fill.source ?? "source"}-${index}`}
-                    className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-xs text-cyan-300"
-                  >
-                    {fill.source ?? "Unknown"}
-                    {fill.proportionBps ? ` · ${fill.proportionBps} bps` : ""}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-slate-400">
-                  No route breakdown returned.
-                </span>
-              )}
-            </div>
-          </div>
         </div>
       ) : null}
     </div>

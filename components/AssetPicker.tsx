@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAccount, useBalance } from "wagmi";
+import { erc20Abi, formatUnits } from "viem";
+import { useAccount, useBalance, useReadContract } from "wagmi";
 import type { SupportedChainKey } from "@/lib/chains";
 import type { TokenOption } from "@/lib/tokens";
 import { isNativeTokenAddress } from "@/lib/tokens";
@@ -88,16 +89,32 @@ function TokenRow({
   const { address } = useAccount();
   const isNative = isNativeTokenAddress(token.address);
 
-  const balance = useBalance({
+  const nativeBalance = useBalance({
     address,
     chainId,
-    token: !isNative ? (token.address as `0x${string}`) : undefined,
     query: {
-      enabled: Boolean(address && chainId),
+      enabled: Boolean(address && chainId && isNative),
     },
   });
 
-  const formatted = balance.data?.formatted ?? "0";
+  const erc20Balance = useReadContract({
+    address: !isNative ? (token.address as `0x${string}`) : undefined,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    chainId,
+    query: {
+      enabled: Boolean(address && chainId && !isNative),
+    },
+  });
+
+  let formatted = "0";
+  if (isNative) {
+    formatted = nativeBalance.data?.formatted ?? "0";
+  } else if (typeof erc20Balance.data === "bigint") {
+    formatted = formatUnits(erc20Balance.data, token.decimals);
+  }
+
   const amount = formatCompactBalance(formatted);
   const numeric = Number(formatted);
   const hasBalance = Number.isFinite(numeric) && numeric > 0;
@@ -145,41 +162,6 @@ function TokenRow({
   );
 }
 
-function TokenSection({
-  title,
-  chainKey,
-  chainId,
-  tokens,
-  onSelect,
-}: {
-  title: string;
-  chainKey: SupportedChainKey;
-  chainId: number;
-  tokens: TokenOption[];
-  onSelect: (symbol: string) => void;
-}) {
-  if (tokens.length === 0) return null;
-
-  return (
-    <>
-      <div className="px-2 pb-2 pt-1 text-sm font-semibold text-slate-300">
-        {title}
-      </div>
-      <div className="space-y-1">
-        {tokens.map((token) => (
-          <TokenRow
-            key={`${chainKey}-${token.symbol}`}
-            chainKey={chainKey}
-            chainId={chainId}
-            token={token}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-    </>
-  );
-}
-
 export default function AssetPicker({
   chainKey,
   chainId,
@@ -221,18 +203,6 @@ export default function AssetPicker({
       return full.includes(q);
     });
   }, [search, filteredBaseTokens]);
-
-  const ownedPriority = useMemo(() => {
-    // prioriza stable first visually, then native/wrapped
-    const priority = ["USDC", "USDT", "ETH", "BNB", "WETH", "WBNB"];
-    return [...searched].sort((a, b) => {
-      const ia = priority.indexOf(a.symbol);
-      const ib = priority.indexOf(b.symbol);
-      const pa = ia === -1 ? 999 : ia;
-      const pb = ib === -1 ? 999 : ib;
-      return pa - pb;
-    });
-  }, [searched]);
 
   return (
     <div className="relative" ref={rootRef}>
@@ -300,23 +270,31 @@ export default function AssetPicker({
             </div>
 
             <div className="max-h-[65vh] overflow-y-auto px-3 pb-4">
-              <TokenSection
-                title="Tokens"
-                chainKey={chainKey}
-                chainId={chainId}
-                tokens={ownedPriority}
-                onSelect={(symbol) => {
-                  onChange(symbol);
-                  setOpen(false);
-                  setSearch("");
-                }}
-              />
+              <div className="px-2 pb-2 pt-1 text-sm font-semibold text-slate-300">
+                Tokens
+              </div>
 
-              {ownedPriority.length === 0 ? (
-                <div className="px-3 py-6 text-center text-sm text-slate-400">
-                  Nenhum token encontrado.
-                </div>
-              ) : null}
+              <div className="space-y-1">
+                {searched.map((token) => (
+                  <TokenRow
+                    key={`${chainKey}-${token.symbol}`}
+                    chainKey={chainKey}
+                    chainId={chainId}
+                    token={token}
+                    onSelect={(symbol) => {
+                      onChange(symbol);
+                      setOpen(false);
+                      setSearch("");
+                    }}
+                  />
+                ))}
+
+                {searched.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-sm text-slate-400">
+                    Nenhum token encontrado.
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>

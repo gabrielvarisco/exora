@@ -22,18 +22,18 @@ export const NATIVE_TOKEN_ADDRESS =
 export const TOKENS_BY_CHAIN: Record<SupportedChainKey, TokenOption[]> = {
   base: [
     {
-      symbol: "ETH",
-      name: "Ether",
-      address: NATIVE_TOKEN_ADDRESS,
-      decimals: 18,
-      icon: "eth",
-    },
-    {
       symbol: "USDC",
       name: "USD Coin",
       address: "0x833589fCD6EDB6E08f4c7C32D4f71b54bdA02913",
       decimals: 6,
       icon: "usdc",
+    },
+    {
+      symbol: "ETH",
+      name: "Ether",
+      address: NATIVE_TOKEN_ADDRESS,
+      decimals: 18,
+      icon: "eth",
     },
     {
       symbol: "WETH",
@@ -45,18 +45,18 @@ export const TOKENS_BY_CHAIN: Record<SupportedChainKey, TokenOption[]> = {
   ],
   ethereum: [
     {
-      symbol: "ETH",
-      name: "Ether",
-      address: NATIVE_TOKEN_ADDRESS,
-      decimals: 18,
-      icon: "eth",
-    },
-    {
       symbol: "USDC",
       name: "USD Coin",
       address: "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
       decimals: 6,
       icon: "usdc",
+    },
+    {
+      symbol: "ETH",
+      name: "Ether",
+      address: NATIVE_TOKEN_ADDRESS,
+      decimals: 18,
+      icon: "eth",
     },
     {
       symbol: "WETH",
@@ -68,18 +68,18 @@ export const TOKENS_BY_CHAIN: Record<SupportedChainKey, TokenOption[]> = {
   ],
   bsc: [
     {
-      symbol: "BNB",
-      name: "BNB",
-      address: NATIVE_TOKEN_ADDRESS,
-      decimals: 18,
-      icon: "bnb",
-    },
-    {
       symbol: "USDT",
       name: "Tether USD",
       address: "0x55d398326f99059fF775485246999027B3197955",
       decimals: 18,
       icon: "usdt",
+    },
+    {
+      symbol: "BNB",
+      name: "BNB",
+      address: NATIVE_TOKEN_ADDRESS,
+      decimals: 18,
+      icon: "bnb",
     },
     {
       symbol: "WBNB",
@@ -107,4 +107,14 @@ export function getTokenBySymbol(
 export function isNativeTokenAddress(address?: string): boolean {
   if (!address) return false;
   return address.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase();
+}
+
+export function getDefaultSellSymbol(chain: SupportedChainKey): string {
+  if (chain === "bsc") return "USDT";
+  return "USDC";
+}
+
+export function getDefaultBuySymbol(chain: SupportedChainKey): string {
+  if (chain === "bsc") return "BNB";
+  return "ETH";
 }
