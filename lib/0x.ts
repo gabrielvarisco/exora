@@ -13,18 +13,26 @@ type ZeroExQuoteParams = ZeroExBaseParams & {
   slippageBps?: string;
 };
 
-async function fetchZeroEx(path: string, params: URLSearchParams) {
+async function fetchZeroEx(path: string, params: URLSearchParams, chain: SupportedChainKey) {
   const apiKey = process.env.ZEROX_API_KEY;
 
   if (!apiKey) {
     throw new Error("ZEROX_API_KEY is missing");
   }
 
-  const response = await fetch(`https://api.0x.org${path}?${params.toString()}`, {
+  // 🔥 define base URL por chain
+  let baseUrl = "https://api.0x.org";
+
+  if (chain === "base") {
+    baseUrl = "https://base.api.0x.org";
+  } else if (chain === "bsc") {
+    baseUrl = "https://bsc.api.0x.org";
+  }
+
+  const response = await fetch(`${baseUrl}${path}?${params.toString()}`, {
     method: "GET",
     headers: {
       "0x-api-key": apiKey,
-      "0x-version": "v2",
     },
     cache: "no-store",
   });
@@ -32,6 +40,7 @@ async function fetchZeroEx(path: string, params: URLSearchParams) {
   const text = await response.text();
 
   if (!response.ok) {
+    console.error("0x raw error:", text);
     throw new Error(`0x error ${response.status}: ${text}`);
   }
 
@@ -62,7 +71,7 @@ export async function getZeroExPrice({
     params.set("taker", taker);
   }
 
-  return fetchZeroEx("/swap/allowance-holder/price", params);
+  return fetchZeroEx("/swap/v1/quote", params, chain);
 }
 
 export async function getZeroExQuote({
@@ -92,5 +101,5 @@ export async function getZeroExQuote({
     slippageBps,
   });
 
-  return fetchZeroEx("/swap/allowance-holder/quote", params);
+  return fetchZeroEx("/swap/v1/quote", params, chain);
 }
